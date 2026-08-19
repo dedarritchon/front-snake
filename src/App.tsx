@@ -20,10 +20,11 @@ const Root = styled.div`
 
 export function App() {
   return (
-    <FrontContextProvider>
+    <>
+      <GlobalStyles />
+      <FrontContextProvider>
       <QueryClientProvider client={queryClient}>
         <AppContextProvider>
-          <GlobalStyles />
           <HashRouter basename="">
             <Root>
               <ErrorBannerProvider>
@@ -33,6 +34,7 @@ export function App() {
           </HashRouter>
         </AppContextProvider>
       </QueryClientProvider>
-    </FrontContextProvider>
+      </FrontContextProvider>
+    </>
   );
 }
