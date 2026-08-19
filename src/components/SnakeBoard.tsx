@@ -35,17 +35,12 @@ const Shell = styled.div`
 `;
 
 const LevelBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 8px;
-  background: rgba(183, 200, 106, 0.9);
   border-bottom: 2px solid ${LCD.border};
   text-transform: uppercase;
 `;
@@ -75,6 +70,10 @@ const BoardFrame = styled.div`
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  container-type: size;
 `;
 
 const Board = styled.div<{
@@ -83,19 +82,29 @@ const Board = styled.div<{
 }>`
   position: relative;
   box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  background: ${LCD.bg};
+  aspect-ratio: ${(p) => p.$cols} / ${(p) => p.$rows};
+  width: min(100cqw, calc(100cqh * ${(p) => p.$cols} / ${(p) => p.$rows}));
+  height: min(100cqh, calc(100cqw * ${(p) => p.$rows} / ${(p) => p.$cols}));
+  border: 2px solid ${LCD.border};
+  background-color: ${LCD.bg};
+  background-image:
+    linear-gradient(
+      to right,
+      rgba(42, 56, 22, 0.12) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(42, 56, 22, 0.12) 1px,
+      transparent 1px
+    );
+  background-size: ${(p) => 100 / p.$cols}% ${(p) => 100 / p.$rows}%;
+  background-position: 0 0;
   overflow: hidden;
 `;
 
 const Dock = styled.div`
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  background: rgba(183, 200, 106, 0.9);
+  flex: 0 0 auto;
   border-top: 2px solid ${LCD.border};
 `;
 
@@ -209,7 +218,6 @@ interface SnakeBoardProps {
   state: GameState;
   playerLabel: string;
   muted: boolean;
-  ranked: boolean;
   board: LeaderboardBoard;
   lastSubmit: SubmitRunResponse | null;
   busy: 'start' | 'submit' | null;
@@ -225,7 +233,6 @@ export function SnakeBoard({
   state,
   playerLabel,
   muted,
-  ranked,
   board,
   lastSubmit,
   busy,
@@ -236,6 +243,17 @@ export function SnakeBoard({
 
   return (
     <Shell>
+      <LevelBar>
+        <LevelLabel>Level {gameLevel(score)}</LevelLabel>
+        <MuteButton
+          type="button"
+          onClick={onToggleMute}
+          aria-label={muted ? 'Unmute' : 'Mute'}
+        >
+          {muted ? 'Muted' : 'Sound'}
+        </MuteButton>
+      </LevelBar>
+
       <BoardFrame>
         <Board $cols={gridWidth} $rows={gridHeight}>
           {snake.map((segment, index) => (
@@ -298,17 +316,6 @@ export function SnakeBoard({
         </Board>
       </BoardFrame>
 
-      <LevelBar>
-        <LevelLabel>Level {gameLevel(score)}</LevelLabel>
-        <MuteButton
-          type="button"
-          onClick={onToggleMute}
-          aria-label={muted ? 'Unmute' : 'Mute'}
-        >
-          {muted ? 'Muted' : 'Sound'}
-        </MuteButton>
-      </LevelBar>
-
       <Dock>
         <Hud>
           <span>{score}</span>
@@ -316,7 +323,6 @@ export function SnakeBoard({
         </Hud>
         <Leaderboard
           board={board}
-          ranked={ranked}
           playing={status === 'playing'}
           onPause={onPause}
         />

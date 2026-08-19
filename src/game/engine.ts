@@ -77,7 +77,11 @@ function isOccupied(point: Point, occupied: Point[]): boolean {
   return occupied.some((other) => pointsEqual(other, point));
 }
 
-export function spawnFood(snake: Point[], occupied: Point[], rng: Rng): Point {
+export function spawnFood(
+  snake: Point[],
+  occupied: Point[],
+  rng: Rng,
+): Point | null {
   const free: Point[] = [];
   for (let y = 0; y < GRID_HEIGHT; y += 1) {
     for (let x = 0; x < GRID_WIDTH; x += 1) {
@@ -88,9 +92,9 @@ export function spawnFood(snake: Point[], occupied: Point[], rng: Rng): Point {
     }
   }
   if (free.length === 0) {
-    return {x: 0, y: 0};
+    return null;
   }
-  return free[rng.nextInt(free.length)] ?? {x: 0, y: 0};
+  return free[rng.nextInt(free.length)] ?? null;
 }
 
 export function spawnFoods(
@@ -102,13 +106,10 @@ export function spawnFoods(
   const foods = [...existing];
   while (foods.length < count) {
     const next = spawnFood(snake, foods, rng);
-    if (isOccupied(next, foods) && foods.length > 0) {
+    if (!next) {
       break;
     }
     foods.push(next);
-    if (foods.length >= GRID_WIDTH * GRID_HEIGHT - snake.length) {
-      break;
-    }
   }
   return foods;
 }

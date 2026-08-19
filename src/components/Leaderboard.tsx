@@ -165,12 +165,10 @@ function BoardRows({
 
 export function Leaderboard({
   board,
-  ranked,
   playing,
   onPause,
 }: {
   board: LeaderboardBoard;
-  ranked: boolean;
   playing: boolean;
   onPause: () => void;
 }) {
@@ -227,7 +225,6 @@ export function Leaderboard({
             <ScreenTitle>
               <ScreenLabel>Scoreboard</ScreenLabel>
               <ScreenDomain>{board.domain ?? 'Company'}</ScreenDomain>
-              <ScreenLabel>{ranked ? 'Ranked' : 'Local'}</ScreenLabel>
             </ScreenTitle>
             <GhostButton type="button" onClick={close}>
               Close

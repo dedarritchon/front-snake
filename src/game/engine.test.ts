@@ -82,6 +82,16 @@ describe('engine replay', () => {
     expect(state.direction).toBe('right');
   });
 
+  it('starts with food that is not on the snake', () => {
+    const state = createSimState('test', 99);
+    expect(state.foods.length).toBeGreaterThan(0);
+    for (const food of state.foods) {
+      expect(
+        state.snake.some((segment) => segment.x === food.x && segment.y === food.y),
+      ).toBe(false);
+    }
+  });
+
   it('adds a second apple from level 11', () => {
     expect(gameLevel(0)).toBe(1);
     expect(gameLevel(45)).toBe(10);

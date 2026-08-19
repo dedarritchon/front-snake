@@ -56,7 +56,7 @@ export function Home() {
   const {context} = useFrontContext();
   const {levelId} = getConversationMeta(context);
   const {board, lastSubmit, start, submit, busy} = useLeaderboard();
-  const {state, muted, toggleMute, pause, rankedActive} = useSnakeGame(levelId, {
+  const {state, muted, toggleMute, pause} = useSnakeGame(levelId, {
     start,
     submit,
     locked: busy !== null,
@@ -70,7 +70,6 @@ export function Home() {
         state={state}
         playerLabel={label}
         muted={muted}
-        ranked={rankedActive}
         board={board}
         lastSubmit={lastSubmit}
         busy={busy}
