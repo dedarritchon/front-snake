@@ -7,34 +7,77 @@ interface Note {
   beats: number;
 }
 
-/** Short Nokia-ish chiptune loop (approx). */
-const MUSIC_LOOP: Note[] = [
-  {freq: 659.25, beats: 1}, // E5
-  {freq: 587.33, beats: 1}, // D5
-  {freq: 523.25, beats: 1}, // C5
-  {freq: 587.33, beats: 1}, // D5
-  {freq: 659.25, beats: 1}, // E5
-  {freq: 659.25, beats: 1},
-  {freq: 659.25, beats: 2},
-  {freq: 587.33, beats: 1}, // D5
-  {freq: 587.33, beats: 1},
-  {freq: 587.33, beats: 2},
-  {freq: 659.25, beats: 1}, // E5
-  {freq: 783.99, beats: 1}, // G5
-  {freq: 783.99, beats: 2},
-  {freq: 659.25, beats: 1},
-  {freq: 587.33, beats: 1},
-  {freq: 523.25, beats: 1},
-  {freq: 587.33, beats: 1},
-  {freq: 659.25, beats: 1},
-  {freq: 659.25, beats: 1},
-  {freq: 659.25, beats: 1},
-  {freq: 659.25, beats: 1},
-  {freq: 587.33, beats: 1},
-  {freq: 587.33, beats: 1},
-  {freq: 659.25, beats: 1},
-  {freq: 587.33, beats: 1},
-  {freq: 523.25, beats: 4},
+interface ThemeNote {
+  melody: number;
+  harmony: number;
+  bass: number;
+  beats: number;
+}
+
+const D3 = 146.83;
+const E3 = 164.81;
+const G3 = 196.0;
+const A3 = 220.0;
+const B3 = 246.94;
+const D4 = 293.66;
+const E4 = 329.63;
+const FS4 = 369.99;
+const G4 = 392.0;
+const A4 = 440.0;
+const B4 = 493.88;
+const CS5 = 554.37;
+const D5 = 587.33;
+const E5 = 659.25;
+const FS5 = 739.99;
+const G5 = 783.99;
+const A5 = 880.0;
+
+/** Original overworld theme — heroic pulse + triangle bass. */
+const THEME_LOOP: ThemeNote[] = [
+  {melody: D5, harmony: A4, bass: D3, beats: 2},
+  {melody: A4, harmony: FS4, bass: D3, beats: 1},
+  {melody: D5, harmony: A4, bass: A3, beats: 1},
+  {melody: FS5, harmony: D5, bass: D3, beats: 4},
+
+  {melody: A5, harmony: FS5, bass: D3, beats: 2},
+  {melody: FS5, harmony: D5, bass: D3, beats: 1},
+  {melody: E5, harmony: CS5, bass: A3, beats: 1},
+  {melody: D5, harmony: A4, bass: D3, beats: 4},
+
+  {melody: B4, harmony: G4, bass: G3, beats: 2},
+  {melody: CS5, harmony: A4, bass: G3, beats: 2},
+  {melody: D5, harmony: B4, bass: D3, beats: 2},
+  {melody: FS5, harmony: D5, bass: G3, beats: 2},
+
+  {melody: E5, harmony: CS5, bass: A3, beats: 4},
+  {melody: A4, harmony: E4, bass: A3, beats: 4},
+
+  {melody: G5, harmony: D5, bass: G3, beats: 2},
+  {melody: FS5, harmony: D5, bass: G3, beats: 2},
+  {melody: E5, harmony: B4, bass: E3, beats: 2},
+  {melody: D5, harmony: A4, bass: D3, beats: 2},
+
+  {melody: CS5, harmony: A4, bass: A3, beats: 2},
+  {melody: D5, harmony: A4, bass: A3, beats: 2},
+  {melody: E5, harmony: CS5, bass: E3, beats: 2},
+  {melody: FS5, harmony: D5, bass: A3, beats: 2},
+
+  {melody: G5, harmony: E5, bass: G3, beats: 2},
+  {melody: E5, harmony: CS5, bass: E3, beats: 2},
+  {melody: CS5, harmony: A4, bass: A3, beats: 2},
+  {melody: A4, harmony: E4, bass: A3, beats: 2},
+
+  {melody: D5, harmony: A4, bass: D3, beats: 6},
+  {melody: 0, harmony: 0, bass: D3, beats: 2},
+
+  {melody: FS4, harmony: D4, bass: B3, beats: 2},
+  {melody: G4, harmony: D4, bass: B3, beats: 2},
+  {melody: A4, harmony: FS4, bass: D3, beats: 2},
+  {melody: B4, harmony: G4, bass: G3, beats: 2},
+
+  {melody: A4, harmony: FS4, bass: D3, beats: 3},
+  {melody: FS4, harmony: D4, bass: D3, beats: 1},
+  {melody: D4, harmony: A3, bass: D3, beats: 4},
 ];
 
 const FANFARE_LOOP: Note[] = [
@@ -49,6 +92,10 @@ const FANFARE_LOOP: Note[] = [
   {freq: 987.77, beats: 1},
   {freq: 1318.5, beats: 4},
 ];
+
+const THEME_BEAT_MS = 240;
+const MUSIC_VOL_IDLE = 0.07;
+const MUSIC_VOL_PLAYING = 0.042;
 
 function loadMuted(): boolean {
   try {
@@ -78,6 +125,7 @@ export class SnakeAudio {
   private fanfareIndex = 0;
   private fanfarePlaying = false;
   private muted = loadMuted();
+  private listeningForGesture = false;
 
   isMuted(): boolean {
     return this.muted;
@@ -88,10 +136,15 @@ export class SnakeAudio {
     saveMuted(muted);
     if (muted) {
       this.stopMusic();
-      this.stopFanfare();
+      this.haltFanfare();
     }
     if (this.master) {
       this.master.gain.value = muted ? 0 : 1;
+    }
+    if (!muted) {
+      void this.unlock().then(() => {
+        this.startMusic();
+      });
     }
   }
 
@@ -101,6 +154,7 @@ export class SnakeAudio {
   }
 
   async unlock(): Promise<void> {
+    this.listenForGesture();
     const ctx = this.ensureContext();
     if (ctx.state === 'suspended') {
       await ctx.resume();
@@ -110,16 +164,16 @@ export class SnakeAudio {
   syncStatus(status: GameStatus): void {
     if (this.muted) {
       this.stopMusic();
-      this.stopFanfare();
+      this.haltFanfare();
       return;
     }
-    if (status === 'playing') {
-      void this.unlock().then(() => {
-        this.startMusic();
-      });
+    if (this.fanfarePlaying) {
       return;
     }
-    this.stopMusic();
+    this.setMusicVolume(status === 'playing' ? MUSIC_VOL_PLAYING : MUSIC_VOL_IDLE);
+    void this.unlock().then(() => {
+      this.startMusic();
+    });
   }
 
   playEat(): void {
@@ -172,11 +226,40 @@ export class SnakeAudio {
   }
 
   stopFanfare(): void {
+    const wasPlaying = this.fanfarePlaying;
+    this.haltFanfare();
+    if (wasPlaying && !this.muted) {
+      this.startMusic();
+    }
+  }
+
+  shutdown(): void {
+    this.stopMusic();
+    this.haltFanfare();
+  }
+
+  private haltFanfare(): void {
     this.fanfarePlaying = false;
     if (this.fanfareTimer !== null) {
       window.clearTimeout(this.fanfareTimer);
       this.fanfareTimer = null;
     }
+  }
+
+  private listenForGesture(): void {
+    if (this.listeningForGesture || typeof window === 'undefined') {
+      return;
+    }
+    this.listeningForGesture = true;
+    const kick = () => {
+      void this.unlock().then(() => {
+        if (!this.muted && !this.fanfarePlaying) {
+          this.startMusic();
+        }
+      });
+    };
+    window.addEventListener('pointerdown', kick);
+    window.addEventListener('keydown', kick);
   }
 
   private ensureContext(): AudioContext {
@@ -190,7 +273,7 @@ export class SnakeAudio {
     master.connect(ctx.destination);
 
     const musicGain = ctx.createGain();
-    musicGain.gain.value = 0.045;
+    musicGain.gain.value = MUSIC_VOL_IDLE;
     musicGain.connect(master);
 
     const sfxGain = ctx.createGain();
@@ -204,11 +287,20 @@ export class SnakeAudio {
     return ctx;
   }
 
+  private setMusicVolume(value: number): void {
+    if (this.musicGain) {
+      this.musicGain.gain.value = value;
+    }
+  }
+
   private startMusic(): void {
-    if (this.musicPlaying || this.muted) {
+    if (this.musicPlaying || this.muted || this.fanfarePlaying) {
       return;
     }
-    this.ensureContext();
+    const ctx = this.ensureContext();
+    if (ctx.state !== 'running') {
+      return;
+    }
     this.musicPlaying = true;
     this.musicIndex = 0;
     this.scheduleNextNote();
@@ -227,16 +319,23 @@ export class SnakeAudio {
       return;
     }
 
-    const note = MUSIC_LOOP[this.musicIndex % MUSIC_LOOP.length];
+    const note = THEME_LOOP[this.musicIndex % THEME_LOOP.length];
     this.musicIndex += 1;
 
-    const beatMs = 160;
-    const duration = (note.beats * beatMs) / 1000;
-    this.tone(note.freq, duration * 0.85, 'square', this.musicGain, 0.7);
+    const duration = (note.beats * THEME_BEAT_MS) / 1000;
+    const hold = duration * 0.92;
+    if (note.melody > 0) {
+      this.tone(note.melody, hold, 'square', this.musicGain, 0.62);
+      this.tone(note.harmony, hold, 'square', this.musicGain, 0.28);
+    }
+    if (note.bass > 0) {
+      this.tone(note.bass, hold, 'triangle', this.musicGain, 0.85);
+      this.tone(note.bass * 2, hold, 'triangle', this.musicGain, 0.22);
+    }
 
     this.musicTimer = window.setTimeout(() => {
       this.scheduleNextNote();
-    }, note.beats * beatMs);
+    }, note.beats * THEME_BEAT_MS);
   }
 
   private startFanfare(): void {
@@ -295,7 +394,7 @@ export class SnakeAudio {
     osc.type = type;
     osc.frequency.setValueAtTime(freq, start);
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(peak, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(peak, start + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(duration, 0.03));
     osc.connect(gain);
     gain.connect(destination);

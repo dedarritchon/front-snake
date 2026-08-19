@@ -51,7 +51,7 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
 
   useEffect(() => {
     return () => {
-      snakeAudio.syncStatus('paused');
+      snakeAudio.shutdown();
     };
   }, []);
 
@@ -115,8 +115,8 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
   const toggleMute = useCallback(() => {
     const next = snakeAudio.toggleMute();
     setMuted(next);
-    if (!next && state.status === 'playing') {
-      snakeAudio.syncStatus('playing');
+    if (!next) {
+      snakeAudio.syncStatus(state.status);
     }
   }, [state.status]);
 
