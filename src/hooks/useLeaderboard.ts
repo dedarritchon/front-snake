@@ -18,6 +18,8 @@ export function useLeaderboard() {
   const [board, setBoard] = useState<LeaderboardBoard>(EMPTY_BOARD);
   const [lastSubmit, setLastSubmit] = useState<SubmitRunResponse | null>(null);
 
+  const [busy, setBusy] = useState<'start' | 'submit' | null>(null);
+
   const refreshBoard = useCallback(async () => {
     if (!isLeaderboardConfigured()) {
       return;
@@ -38,6 +40,7 @@ export function useLeaderboard() {
       return null;
     }
     setLastSubmit(null);
+    setBusy('start');
     try {
       return await snakeClient.leaderboard.start({
         email: context.teammate.email,
@@ -45,12 +48,15 @@ export function useLeaderboard() {
       });
     } catch {
       return null;
+    } finally {
+      setBusy(null);
     }
   }, [context.teammate.email, context.teammate.name, snakeClient]);
 
   const submit = useCallback(
     (sessionId: string, directions: Direction[]) => {
       void (async () => {
+        setBusy('submit');
         try {
           const result = await snakeClient.leaderboard.submit(
             sessionId,
@@ -61,11 +67,13 @@ export function useLeaderboard() {
           setBoard(result.board);
         } catch (error) {
           showError(error, 'Score was not accepted.');
+        } finally {
+          setBusy(null);
         }
       })();
     },
     [context.teammate.email, context.teammate.name, showError, snakeClient],
   );
 
-  return {board, lastSubmit, start, submit};
+  return {board, lastSubmit, start, submit, busy};
 }

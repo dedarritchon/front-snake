@@ -212,6 +212,7 @@ interface SnakeBoardProps {
   ranked: boolean;
   board: LeaderboardBoard;
   lastSubmit: SubmitRunResponse | null;
+  busy: 'start' | 'submit' | null;
   onToggleMute: () => void;
   onPause: () => void;
 }
@@ -227,6 +228,7 @@ export function SnakeBoard({
   ranked,
   board,
   lastSubmit,
+  busy,
   onToggleMute,
   onPause,
 }: SnakeBoardProps) {
@@ -261,19 +263,27 @@ export function SnakeBoard({
             </Cell>
           ))}
 
-          {status === 'ready' ? (
+          {busy ? (
+            <Overlay>
+              Loading
+              <OverlayHint>
+                {busy === 'start' ? 'Starting run…' : 'Saving score…'}
+              </OverlayHint>
+            </Overlay>
+          ) : null}
+          {!busy && status === 'ready' ? (
             <Overlay>
               Snake
               <OverlayHint>Arrows / WASD to play</OverlayHint>
             </Overlay>
           ) : null}
-          {status === 'paused' ? (
+          {!busy && status === 'paused' ? (
             <Overlay>
               Paused
               <OverlayHint>Space resume · M mute</OverlayHint>
             </Overlay>
           ) : null}
-          {status === 'gameover' ? (
+          {!busy && status === 'gameover' ? (
             <Overlay>
               Game over
               <OverlayHint>Score {score}</OverlayHint>

@@ -17,6 +17,7 @@ import type {RankedSession} from '../snakeClient/leaderboard';
 interface RankedHandlers {
   start: () => Promise<RankedSession | null>;
   submit: (sessionId: string, directions: Direction[]) => void;
+  locked?: boolean;
 }
 
 export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
@@ -152,6 +153,10 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (rankedRef.current?.locked && event.key.toLowerCase() !== 'm') {
+        event.preventDefault();
+        return;
+      }
       const key = event.key.toLowerCase();
 
       let direction: Direction | null = null;

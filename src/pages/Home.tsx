@@ -55,10 +55,11 @@ function getConversationMeta(
 export function Home() {
   const {context} = useFrontContext();
   const {levelId} = getConversationMeta(context);
-  const {board, lastSubmit, start, submit} = useLeaderboard();
+  const {board, lastSubmit, start, submit, busy} = useLeaderboard();
   const {state, muted, toggleMute, pause, rankedActive} = useSnakeGame(levelId, {
     start,
     submit,
+    locked: busy !== null,
   });
   const teammate = context.teammate;
   const label = playerName(teammate.email, teammate.name);
@@ -72,6 +73,7 @@ export function Home() {
         ranked={rankedActive}
         board={board}
         lastSubmit={lastSubmit}
+        busy={busy}
         onToggleMute={toggleMute}
         onPause={pause}
       />

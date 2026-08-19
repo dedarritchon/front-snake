@@ -216,7 +216,7 @@ export function Leaderboard({
         <Title>
           <TitleCopy>{board.domain ?? 'Company'}</TitleCopy>
           <GhostButton type="button" onClick={open}>
-            Full
+            Scoreboard
           </GhostButton>
         </Title>
       </Wrap>
