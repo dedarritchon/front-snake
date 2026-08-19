@@ -213,4 +213,141 @@ describe('multiplayerEngine', () => {
     ).toBe(true);
     expect(allReadyToStart([{...PLAYERS[0], ready: true}])).toBe(false);
   });
+
+  it('spawns food only on the versus grid', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 44));
+    for (let i = 0; i < 12; i += 1) {
+      state = tickMp(state);
+    }
+    for (const food of state.foods) {
+      expect(food.x).toBeGreaterThanOrEqual(0);
+      expect(food.x).toBeLessThan(MP_GRID_WIDTH);
+      expect(food.y).toBeGreaterThanOrEqual(0);
+      expect(food.y).toBeLessThan(MP_GRID_HEIGHT);
+    }
+  });
+
+  it('does not treat the solo board edge as a versus wall', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{x: 0, y: 0}],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: 'right',
+          pending: 'right',
+          body: [
+            {x: 19, y: 10},
+            {x: 18, y: 10},
+            {x: 17, y: 10},
+          ],
+        },
+        state.snakes[1],
+      ],
+    };
+    state = tickMp(state);
+    expect(state.snakes[0].alive).toBe(true);
+    expect(state.snakes[0].body[0]).toEqual({x: 20, y: 10});
+  });
+
+  it('kills a snake on the versus right wall', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{x: 0, y: 0}],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: 'right',
+          pending: 'right',
+          body: [
+            {x: MP_GRID_WIDTH - 1, y: 10},
+            {x: MP_GRID_WIDTH - 2, y: 10},
+            {x: MP_GRID_WIDTH - 3, y: 10},
+          ],
+        },
+        state.snakes[1],
+      ],
+    };
+    state = tickMp(state);
+    expect(state.snakes[0].alive).toBe(false);
+  });
+
+  it('does not move a dead snake', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    const body = [
+      {x: 8, y: 10},
+      {x: 7, y: 10},
+      {x: 6, y: 10},
+    ];
+    state = {
+      ...state,
+      foods: [{x: 0, y: 0}],
+      snakes: [
+        {
+          ...state.snakes[0],
+          alive: false,
+          direction: 'right',
+          pending: 'right',
+          body,
+        },
+        state.snakes[1],
+      ],
+    };
+    state = tickMp(state);
+    expect(state.snakes[0].body).toEqual(body);
+  });
+
+  it('ignores input for an unknown or dead snake', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    expect(queueMpInput(state, 'nope', 'down').snakes[0].pending).toBe(
+      state.snakes[0].pending,
+    );
+    state = killPlayer(state, 'a');
+    expect(queueMpInput(state, 'a', 'down').snakes[0].pending).toBe(
+      state.snakes[0].pending,
+    );
+  });
+
+  it('keeps the match going when one of three snakes leaves', () => {
+    const playing = startMp(createMpLobby(PLAYERS, 1));
+    const next = killPlayer(playing, 'c');
+    expect(next.status).toBe('playing');
+    expect(next.snakes.find((snake) => snake.id === 'c')?.alive).toBe(false);
+  });
+
+  it('resets scores and bodies on rematch', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      status: 'over',
+      snakes: state.snakes.map((snake) => ({
+        ...snake,
+        score: 40,
+        alive: false,
+      })),
+    };
+    const rematch = startMp(state, 2);
+    expect(rematch.status).toBe('playing');
+    expect(rematch.snakes.every((snake) => snake.alive && snake.score === 0)).toBe(
+      true,
+    );
+    expect(rematch.snakes[0].body[0]).toEqual({x: 2, y: 3});
+  });
+
+  it('ends a lobby when the host leaves', () => {
+    const lobby = markHostLeft(createMpLobby(PLAYERS.slice(0, 2), 1));
+    expect(lobby.status).toBe('over');
+    expect(lobby.hostLeft).toBe(true);
+    expect(tickMp(lobby)).toBe(lobby);
+  });
+
+  it('rejects ambiguous room-id glyphs', () => {
+    expect(isRoomId('abcd1')).toBe(false);
+    expect(isRoomId('abcdl')).toBe(false);
+    expect(isRoomId('abcdo')).toBe(false);
+    expect(normalizeRoomId('Ab-23')).toBe('ab23');
+    expect(isRoomId(createRoomId())).toBe(true);
+  });
 });

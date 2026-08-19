@@ -4,6 +4,7 @@ import {MP_COLORS, MP_MAX_PLAYERS} from '../game/multiplayerEngine';
 import {
   holdRoster,
   PRESENCE_GRACE_MS,
+  roomIdentity,
   rosterFromPresence,
 } from './multiplayer';
 
@@ -101,5 +102,38 @@ describe('holdRoster', () => {
   it('does not drop everyone on an empty blip', () => {
     const held = holdRoster([ann, bea], [], 1000, new Map());
     expect(held.players.map((player) => player.id)).toEqual(['a', 'b']);
+  });
+
+  it('still holds one tick before grace expires', () => {
+    const held = holdRoster([ann, bea], [ann], 1000, new Map());
+    const almost = holdRoster(
+      held.players,
+      [ann],
+      1000 + PRESENCE_GRACE_MS - 1,
+      held.missingSince,
+    );
+    expect(almost.players.map((player) => player.id)).toEqual(['a', 'b']);
+  });
+
+  it('keeps the host seated through a presence hole', () => {
+    const held = holdRoster([ann, bea], [bea], 500, new Map());
+    expect(held.players.find((player) => player.id === 'a')?.host).toBe(true);
+  });
+
+  it('keeps join-order colors while a player is held', () => {
+    const held = holdRoster([ann, bea], [ann], 1000, new Map());
+    expect(held.players[0].color).toBe(MP_COLORS[0]);
+    expect(held.players[1].color).toBe(MP_COLORS[1]);
+  });
+});
+
+describe('roomIdentity', () => {
+  it('reuses the same player id for a room', () => {
+    const first = roomIdentity('room-stable', () => 'aaaaaaaaaaaa');
+    const second = roomIdentity('room-stable', () => 'bbbbbbbbbbbb');
+    expect(second).toEqual(first);
+    expect(roomIdentity('room-other', () => 'cccccccccccc').playerId).toBe(
+      'cccccccccccc',
+    );
   });
 });

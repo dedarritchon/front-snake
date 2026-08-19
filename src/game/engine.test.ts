@@ -295,4 +295,61 @@ describe('engine replay', () => {
     );
     expect(replayGame(1, directions).ended).toBe('ready');
   });
+
+  it('stops counting once the replay dies mid-list', () => {
+    const {state, recorded} = play(7, Array.from({length: 80}, () => 'right'));
+    expect(state.status).toBe('gameover');
+    const replay = replayGame(7, [...recorded, 'up', 'left', 'down']);
+    expect(replay.ended).toBe('gameover');
+    expect(replay.ticks).toBe(recorded.length);
+    expect(replay.score).toBe(state.score);
+  });
+});
+
+describe('walls and spawn bounds', () => {
+  it('dies on the top and bottom edges', () => {
+    const start = queueDirection(createSimState('test', 1), 'up');
+    expect(
+      tick(withSnake(start, [{x: 5, y: 0}, {x: 5, y: 1}])).status,
+    ).toBe('gameover');
+    const down = queueDirection(createSimState('test', 1), 'down');
+    expect(
+      tick(
+        withSnake(down, [
+          {x: 5, y: GRID_HEIGHT - 1},
+          {x: 5, y: GRID_HEIGHT - 2},
+        ]),
+      ).status,
+    ).toBe('gameover');
+  });
+
+  it('keeps every apple on the 20x40 board', () => {
+    const state = createSimState('test', 2026);
+    for (const food of state.foods) {
+      expect(food.x).toBeGreaterThanOrEqual(0);
+      expect(food.x).toBeLessThan(GRID_WIDTH);
+      expect(food.y).toBeGreaterThanOrEqual(0);
+      expect(food.y).toBeLessThan(GRID_HEIGHT);
+    }
+  });
+
+  it('does not start a run with a reverse from ready', () => {
+    const ready = createSimState('test', 1);
+    expect(queueDirection(ready, 'left')).toBe(ready);
+    expect(ready.status).toBe('ready');
+  });
+
+  it('leaves a finished run untouched', () => {
+    const over = {
+      ...createSimState('test', 1),
+      status: 'gameover' as const,
+    };
+    expect(tick(over)).toBe(over);
+    expect(togglePause(over)).toBe(over);
+  });
+
+  it('returns 0 from nextInt when max is not positive', () => {
+    expect(createRng(1).nextInt(0)).toBe(0);
+    expect(createRng(1).nextInt(-3)).toBe(0);
+  });
 });

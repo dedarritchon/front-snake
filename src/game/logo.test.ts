@@ -24,4 +24,20 @@ describe('FRONT logo', () => {
     expect(bait.y).toBeGreaterThan(maxY);
     expect(bait.x).toBe(Math.floor(GRID_WIDTH / 2));
   });
+
+  it('does not put bait on a logo cell', () => {
+    const cells = frontLogoCells(GRID_WIDTH, GRID_HEIGHT);
+    const bait = frontLogoBait(GRID_WIDTH, GRID_HEIGHT);
+    expect(
+      cells.some((cell) => cell.x === bait.x && cell.y === bait.y),
+    ).toBe(false);
+  });
+
+  it('clips to a tiny board without throwing', () => {
+    const cells = frontLogoCells(4, 4);
+    expect(cells.every((cell) => cell.x < 4 && cell.y < 4)).toBe(true);
+    const bait = frontLogoBait(4, 4);
+    expect(bait.x).toBeLessThan(4);
+    expect(bait.y).toBeLessThan(4);
+  });
 });
