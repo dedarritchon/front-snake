@@ -1,4 +1,10 @@
-import type {GameStatus} from '../game/types';
+import type {Direction, GameStatus} from '../game/types';
+import {
+  getTheme,
+  loadCommittedThemeId,
+  saveCommittedThemeId,
+  type GameTheme,
+} from './themes';
 
 const MUTE_KEY = 'front-snake-muted';
 
@@ -6,79 +12,6 @@ interface Note {
   freq: number;
   beats: number;
 }
-
-interface ThemeNote {
-  melody: number;
-  harmony: number;
-  bass: number;
-  beats: number;
-}
-
-const D3 = 146.83;
-const E3 = 164.81;
-const G3 = 196.0;
-const A3 = 220.0;
-const B3 = 246.94;
-const D4 = 293.66;
-const E4 = 329.63;
-const FS4 = 369.99;
-const G4 = 392.0;
-const A4 = 440.0;
-const B4 = 493.88;
-const CS5 = 554.37;
-const D5 = 587.33;
-const E5 = 659.25;
-const FS5 = 739.99;
-const G5 = 783.99;
-const A5 = 880.0;
-
-/** Original overworld theme — heroic pulse + triangle bass. */
-const THEME_LOOP: ThemeNote[] = [
-  {melody: D5, harmony: A4, bass: D3, beats: 2},
-  {melody: A4, harmony: FS4, bass: D3, beats: 1},
-  {melody: D5, harmony: A4, bass: A3, beats: 1},
-  {melody: FS5, harmony: D5, bass: D3, beats: 4},
-
-  {melody: A5, harmony: FS5, bass: D3, beats: 2},
-  {melody: FS5, harmony: D5, bass: D3, beats: 1},
-  {melody: E5, harmony: CS5, bass: A3, beats: 1},
-  {melody: D5, harmony: A4, bass: D3, beats: 4},
-
-  {melody: B4, harmony: G4, bass: G3, beats: 2},
-  {melody: CS5, harmony: A4, bass: G3, beats: 2},
-  {melody: D5, harmony: B4, bass: D3, beats: 2},
-  {melody: FS5, harmony: D5, bass: G3, beats: 2},
-
-  {melody: E5, harmony: CS5, bass: A3, beats: 4},
-  {melody: A4, harmony: E4, bass: A3, beats: 4},
-
-  {melody: G5, harmony: D5, bass: G3, beats: 2},
-  {melody: FS5, harmony: D5, bass: G3, beats: 2},
-  {melody: E5, harmony: B4, bass: E3, beats: 2},
-  {melody: D5, harmony: A4, bass: D3, beats: 2},
-
-  {melody: CS5, harmony: A4, bass: A3, beats: 2},
-  {melody: D5, harmony: A4, bass: A3, beats: 2},
-  {melody: E5, harmony: CS5, bass: E3, beats: 2},
-  {melody: FS5, harmony: D5, bass: A3, beats: 2},
-
-  {melody: G5, harmony: E5, bass: G3, beats: 2},
-  {melody: E5, harmony: CS5, bass: E3, beats: 2},
-  {melody: CS5, harmony: A4, bass: A3, beats: 2},
-  {melody: A4, harmony: E4, bass: A3, beats: 2},
-
-  {melody: D5, harmony: A4, bass: D3, beats: 6},
-  {melody: 0, harmony: 0, bass: D3, beats: 2},
-
-  {melody: FS4, harmony: D4, bass: B3, beats: 2},
-  {melody: G4, harmony: D4, bass: B3, beats: 2},
-  {melody: A4, harmony: FS4, bass: D3, beats: 2},
-  {melody: B4, harmony: G4, bass: G3, beats: 2},
-
-  {melody: A4, harmony: FS4, bass: D3, beats: 3},
-  {melody: FS4, harmony: D4, bass: D3, beats: 1},
-  {melody: D4, harmony: A3, bass: D3, beats: 4},
-];
 
 const FANFARE_LOOP: Note[] = [
   {freq: 523.25, beats: 1},
@@ -93,7 +26,6 @@ const FANFARE_LOOP: Note[] = [
   {freq: 1318.5, beats: 4},
 ];
 
-const THEME_BEAT_MS = 240;
 const MUSIC_VOL_IDLE = 0.07;
 const MUSIC_VOL_PLAYING = 0.042;
 
@@ -126,6 +58,50 @@ export class SnakeAudio {
   private fanfarePlaying = false;
   private muted = loadMuted();
   private listeningForGesture = false;
+  private selectorMode = false;
+  private committedThemeId = loadCommittedThemeId();
+  private previewThemeId: string | null = null;
+
+  committedId(): string {
+    return this.committedThemeId;
+  }
+
+  enterSelector(): void {
+    this.selectorMode = true;
+    this.previewThemeId = null;
+    this.stopMusic();
+    this.haltFanfare();
+    if (this.master) {
+      this.master.gain.value = 1;
+    }
+  }
+
+  leaveSelector(): void {
+    this.selectorMode = false;
+    this.previewThemeId = null;
+    this.stopMusic();
+    if (this.master) {
+      this.master.gain.value = this.muted ? 0 : 1;
+    }
+  }
+
+  previewTheme(id: string): void {
+    this.previewThemeId = id;
+    this.stopMusic();
+    void this.unlock().then(() => {
+      this.startMusic();
+    });
+  }
+
+  stopPreview(): void {
+    this.stopMusic();
+  }
+
+  commitTheme(id: string): void {
+    this.committedThemeId = id;
+    this.previewThemeId = id;
+    saveCommittedThemeId(id);
+  }
 
   isMuted(): boolean {
     return this.muted;
@@ -215,6 +191,21 @@ export class SnakeAudio {
     });
   }
 
+  playMove(direction: Direction): void {
+    if (this.muted) {
+      return;
+    }
+    const freq = {
+      up: 784.0,
+      down: 330.0,
+      left: 440.0,
+      right: 587.0,
+    }[direction];
+    void this.unlock().then(() => {
+      this.blip(freq, 0.045, 'square', 0.045);
+    });
+  }
+
   playFanfare(): void {
     if (this.muted) {
       return;
@@ -252,6 +243,10 @@ export class SnakeAudio {
     }
     this.listeningForGesture = true;
     const kick = () => {
+      if (this.selectorMode) {
+        void this.unlock();
+        return;
+      }
       void this.unlock().then(() => {
         if (!this.muted && !this.fanfarePlaying) {
           this.startMusic();
@@ -293,8 +288,15 @@ export class SnakeAudio {
     }
   }
 
+  private currentTheme(): GameTheme {
+    return getTheme(this.previewThemeId ?? this.committedThemeId);
+  }
+
   private startMusic(): void {
-    if (this.musicPlaying || this.muted || this.fanfarePlaying) {
+    if (this.musicPlaying || this.fanfarePlaying) {
+      return;
+    }
+    if (this.muted && !this.selectorMode) {
       return;
     }
     const ctx = this.ensureContext();
@@ -319,14 +321,17 @@ export class SnakeAudio {
       return;
     }
 
-    const note = THEME_LOOP[this.musicIndex % THEME_LOOP.length];
+    const theme = this.currentTheme();
+    const note = theme.loop[this.musicIndex % theme.loop.length];
     this.musicIndex += 1;
 
-    const duration = (note.beats * THEME_BEAT_MS) / 1000;
-    const hold = duration * 0.92;
+    const duration = (note.beats * theme.beatMs) / 1000;
+    const hold = duration * theme.hold;
     if (note.melody > 0) {
       this.tone(note.melody, hold, 'square', this.musicGain, 0.62);
-      this.tone(note.harmony, hold, 'square', this.musicGain, 0.28);
+      if (note.harmony > 0) {
+        this.tone(note.harmony, hold, 'square', this.musicGain, 0.28);
+      }
     }
     if (note.bass > 0) {
       this.tone(note.bass, hold, 'triangle', this.musicGain, 0.85);
@@ -335,7 +340,7 @@ export class SnakeAudio {
 
     this.musicTimer = window.setTimeout(() => {
       this.scheduleNextNote();
-    }, note.beats * THEME_BEAT_MS);
+    }, note.beats * theme.beatMs);
   }
 
   private startFanfare(): void {

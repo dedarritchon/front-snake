@@ -83,7 +83,11 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
           void beginRun(direction);
           return prev;
         }
-        return queueDirection(prev, direction);
+        const next = queueDirection(prev, direction);
+        if (next.pendingDirection !== prev.pendingDirection) {
+          snakeAudio.playMove(direction);
+        }
+        return next;
       });
     },
     [beginRun],
