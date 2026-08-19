@@ -1,5 +1,6 @@
 import {styled} from 'styled-components';
 
+import {gameLevel} from '../game/engine';
 import type {GameState, Point} from '../game/types';
 import type {
   LeaderboardBoard,
@@ -60,15 +61,6 @@ const LevelLabel = styled.span`
   font-size: 8px;
   letter-spacing: 0.08em;
   opacity: 0.7;
-`;
-
-const LevelId = styled.span`
-  font-size: 9px;
-  letter-spacing: 0.02em;
-  line-height: 1.45;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `;
 
 const LevelMeta = styled.span`
@@ -251,9 +243,9 @@ export function SnakeBoard({
       <LevelBar>
         <LevelTop>
           <LevelCopy>
-            <LevelLabel>Level</LevelLabel>
-            <LevelId>{levelTitle}</LevelId>
+            <LevelLabel>Level {gameLevel(score)}</LevelLabel>
             {levelSubtitle ? <LevelMeta>{levelSubtitle}</LevelMeta> : null}
+            <LevelMeta>{levelTitle}</LevelMeta>
           </LevelCopy>
           <MuteButton
             type="button"

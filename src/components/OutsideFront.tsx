@@ -17,8 +17,8 @@ const SNAKE: Array<{x: number; y: number}> = [
   {x: 8, y: 9},
 ];
 const FOOD = {x: 3, y: 11};
-const COLS = 11;
-const ROWS = 21;
+const COLS = 17;
+const ROWS = 27;
 
 const Shell = styled.div`
   height: 100%;

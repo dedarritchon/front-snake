@@ -8,10 +8,11 @@ import {
 import type {GameState, Point} from './types';
 
 export {
+  gameLevel,
   GRID_HEIGHT,
   GRID_WIDTH,
   queueDirection,
-  tickMsForSnakeLength,
+  tickMsForScore,
   togglePause,
 } from './engine';
 

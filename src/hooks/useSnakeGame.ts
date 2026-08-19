@@ -8,7 +8,7 @@ import {
   queueDirection,
   saveGameState,
   tick,
-  tickMsForSnakeLength,
+  tickMsForScore,
   togglePause,
 } from '../game/snakeEngine';
 import type {Direction, GameState} from '../game/types';
@@ -31,7 +31,7 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
   const rankedRef = useRef(ranked);
   rankedRef.current = ranked;
 
-  const tickMs = tickMsForSnakeLength(state.snake.length);
+  const tickMs = tickMsForScore(state.score, state.snake.length);
 
   useEffect(() => {
     sessionRef.current = null;

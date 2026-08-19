@@ -38,11 +38,13 @@ export const DIRECTION_DELTA: Record<Direction, Point> = {
   right: { x: 1, y: 0 },
 };
 
-export const GRID_WIDTH = 11;
-export const GRID_HEIGHT = 21;
+export const GRID_WIDTH = 17;
+export const GRID_HEIGHT = 27;
 export const BASE_TICK_MS = 140;
-export const MIN_TICK_MS = 55;
+export const MIN_TICK_MS = 50;
 export const MAX_BAITS = 5;
+export const SCORE_PER_FOOD = 5;
+export const LEVELS_PER_EXTRA_BAIT = 10;
 export const MAX_REPLAY_TICKS = 20_000;
 export const DURATION_SLACK = 0.9;
 
@@ -72,13 +74,25 @@ export function createRng(initialState: number): Rng {
   };
 }
 
-export function tickMsForSnakeLength(length: number): number {
-  const growth = Math.max(0, length - 3);
-  return Math.max(MIN_TICK_MS, BASE_TICK_MS - growth * 5);
+export function gameLevel(score: number): number {
+  return 1 + Math.floor(Math.max(0, score) / SCORE_PER_FOOD);
 }
 
-export function baitCountForSnakeLength(length: number): number {
-  return Math.min(MAX_BAITS, 1 + Math.floor(length / 10));
+export function tickMsForScore(score: number, snakeLength: number): number {
+  const level = gameLevel(score);
+  const growth = Math.max(0, snakeLength - 3);
+  return Math.max(
+    MIN_TICK_MS,
+    BASE_TICK_MS - (level - 1) * 5 - growth * 3,
+  );
+}
+
+export function baitCountForScore(score: number): number {
+  const level = gameLevel(score);
+  return Math.min(
+    MAX_BAITS,
+    1 + Math.floor((level - 1) / LEVELS_PER_EXTRA_BAIT),
+  );
 }
 
 function pointsEqual(a: Point, b: Point): boolean {
@@ -129,10 +143,15 @@ export function spawnFoods(
   return foods;
 }
 
-function refillFoods(snake: Point[], foods: Point[], rng: Rng): Point[] {
-  const target = baitCountForSnakeLength(snake.length);
+function refillFoods(
+  snake: Point[],
+  foods: Point[],
+  score: number,
+  rng: Rng,
+): Point[] {
+  const target = baitCountForScore(score);
   if (foods.length >= target) {
-    return foods.slice(0, target);
+    return foods;
   }
   return spawnFoods(target, snake, foods, rng);
 }
@@ -152,12 +171,7 @@ export function createSimState(
     { x: start.x - 1, y: start.y },
     { x: start.x - 2, y: start.y },
   ];
-  const foods = spawnFoods(
-    baitCountForSnakeLength(snake.length),
-    snake,
-    [],
-    rng,
-  );
+  const foods = spawnFoods(baitCountForScore(0), snake, [], rng);
 
   return {
     levelId,
@@ -204,11 +218,11 @@ export function tick(state: GameState): GameState {
   const ate = eatenIndex >= 0;
   const body = ate ? state.snake : state.snake.slice(0, -1);
   const snake = [nextHead, ...body];
-  const score = ate ? state.score + 5 : state.score;
+  const score = ate ? state.score + SCORE_PER_FOOD : state.score;
   const remainingFoods = ate
     ? state.foods.filter((_, index) => index !== eatenIndex)
     : state.foods;
-  const foods = refillFoods(snake, remainingFoods, rng);
+  const foods = refillFoods(snake, remainingFoods, score, rng);
   const highScore = Math.max(score, state.highScore);
 
   return {
@@ -256,7 +270,7 @@ export function replayGame(
         ended: "gameover",
       };
     }
-    minDurationMs += tickMsForSnakeLength(state.snake.length);
+    minDurationMs += tickMsForScore(state.score, state.snake.length);
     state = tick({ ...state, pendingDirection: direction, status: "playing" });
   }
 

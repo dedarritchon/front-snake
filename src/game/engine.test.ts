@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest';
 
-import {createSimState, queueDirection, replayGame, tick} from './engine';
+import {
+  baitCountForScore,
+  createSimState,
+  gameLevel,
+  queueDirection,
+  replayGame,
+  tick,
+} from './engine';
 import type {Direction} from './types';
 
 function play(seed: number, inputs: Direction[]) {
@@ -73,5 +80,15 @@ describe('engine replay', () => {
     const {state, recorded} = play(7, ['right', 'left', 'right']);
     expect(recorded.every((direction) => direction === 'right')).toBe(true);
     expect(state.direction).toBe('right');
+  });
+
+  it('adds a second apple from level 11', () => {
+    expect(gameLevel(0)).toBe(1);
+    expect(gameLevel(45)).toBe(10);
+    expect(gameLevel(50)).toBe(11);
+    expect(baitCountForScore(0)).toBe(1);
+    expect(baitCountForScore(45)).toBe(1);
+    expect(baitCountForScore(50)).toBe(2);
+    expect(baitCountForScore(100)).toBe(3);
   });
 });
