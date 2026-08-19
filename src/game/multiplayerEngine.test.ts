@@ -2,10 +2,13 @@ import {describe, expect, it} from 'vitest';
 
 import {SCORE_PER_FOOD as SOLO_SCORE} from './engine';
 import {
+  advanceReplay,
   allReadyToStart,
+  beginReplay,
   createMpLobby,
   createPlayerId,
   createRoomId,
+  describeDeaths,
   isRoomId,
   killPlayer,
   markHostLeft,
@@ -15,6 +18,8 @@ import {
   type MpPlayer,
   normalizeRoomId,
   queueMpInput,
+  shouldSlowMo,
+  snapshotMp,
   startMp,
   tickMp,
 } from './multiplayerEngine';
@@ -349,5 +354,96 @@ describe('multiplayerEngine', () => {
     expect(isRoomId('abcdo')).toBe(false);
     expect(normalizeRoomId('Ab-23')).toBe('ab23');
     expect(isRoomId(createRoomId())).toBe(true);
+  });
+
+  it('keeps a dead body on the board when others remain', () => {
+    let state = startMp(createMpLobby(PLAYERS, 1));
+    state = {
+      ...state,
+      foods: [{x: 0, y: 0}],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: 'left',
+          pending: 'left',
+          body: [
+            {x: 0, y: 10},
+            {x: 1, y: 10},
+            {x: 2, y: 10},
+          ],
+        },
+        state.snakes[1],
+        state.snakes[2],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe('playing');
+    expect(next.snakes[0].alive).toBe(false);
+    expect(next.snakes[0].body).toHaveLength(3);
+    expect(next.lastDeaths[0]).toMatchObject({playerId: 'a', cause: 'wall'});
+    expect(shouldSlowMo(state, next)).toBe(false);
+    expect(describeDeaths(next.lastDeaths, next.snakes)).toBe('A hit the wall');
+  });
+
+  it('names a crash between the last two snakes', () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{x: 0, y: 0}],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: 'right',
+          pending: 'right',
+          body: [
+            {x: 5, y: 10},
+            {x: 4, y: 10},
+            {x: 3, y: 10},
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: 'left',
+          pending: 'left',
+          body: [
+            {x: 7, y: 10},
+            {x: 8, y: 10},
+            {x: 9, y: 10},
+          ],
+        },
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe('over');
+    expect(next.lastDeaths.every((death) => death.cause === 'head')).toBe(true);
+    expect(shouldSlowMo(state, next)).toBe(true);
+    expect(describeDeaths(next.lastDeaths, next.snakes)).toBe('A and B crashed');
+  });
+
+  it('replays frames then returns to over', () => {
+    const over = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    const first = snapshotMp(over);
+    const second = snapshotMp({
+      ...over,
+      snakes: over.snakes.map((snake) => ({...snake, alive: false})),
+    });
+    let replay = beginReplay({...over, status: 'over', lastDeaths: []}, [
+      first,
+      second,
+    ]);
+    expect(replay.status).toBe('replay');
+    expect(replay.snakes[0].alive).toBe(true);
+    replay = advanceReplay(replay);
+    expect(replay.snakes[0].alive).toBe(false);
+    replay = advanceReplay(replay);
+    expect(replay.status).toBe('over');
+  });
+
+  it('does not slow-mo a disconnect', () => {
+    const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    const left = killPlayer(playing, 'b');
+    expect(left.lastDeaths[0]?.cause).toBe('left');
+    expect(shouldSlowMo(playing, left)).toBe(false);
+    expect(describeDeaths(left.lastDeaths, left.snakes)).toBe('B left');
   });
 });

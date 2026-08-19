@@ -1,6 +1,7 @@
 import {styled} from 'styled-components';
 
 import {
+  describeDeaths,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   type MpPlayer,
@@ -274,6 +275,18 @@ const LinkHint = styled.span`
   opacity: 0.85;
 `;
 
+const DeathHint = styled.span`
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 8px;
+  font-size: 7px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.5;
+`;
+
 const RoomCode = styled.span`
   font-size: 12px;
   letter-spacing: 0.18em;
@@ -335,9 +348,13 @@ export function VersusBoard({
     joinedAt: index,
   }));
   const readyCount = seated.filter((player) => player.ready).length;
-  const waitingOnReady = status !== 'playing';
+  const waitingOnReady = status !== 'playing' && status !== 'replay';
   const connected = link === 'connected';
   const canReady = connected && !error && waitingOnReady;
+  const deathLine =
+    state && state.lastDeaths.length > 0
+      ? describeDeaths(state.lastDeaths, snakes)
+      : '';
 
   return (
     <Shell>
@@ -385,6 +402,13 @@ export function VersusBoard({
               ))
             : null}
 
+          {!error && deathLine && (status === 'playing' || status === 'replay') ? (
+            <DeathHint>
+              {status === 'replay' ? 'Slow-mo · ' : ''}
+              {deathLine}
+            </DeathHint>
+          ) : null}
+
           {error ? (
             <Overlay>
               Offline
@@ -397,7 +421,7 @@ export function VersusBoard({
               <OverlayHint>Joining room…</OverlayHint>
             </Overlay>
           ) : null}
-          {!error && link === 'reconnecting' && status === 'playing' ? (
+          {!error && link === 'reconnecting' && (status === 'playing' || status === 'replay') ? (
             <LinkHint>Reconnecting…</LinkHint>
           ) : null}
           {!error && status === 'lobby' && (connected || link === 'reconnecting') ? (
@@ -430,6 +454,7 @@ export function VersusBoard({
           {!error && status === 'over' ? (
             <Overlay>
               {state?.hostLeft ? 'Host left' : state ? winnerName(state) : 'Over'}
+              {deathLine ? <OverlayHint>{deathLine}</OverlayHint> : null}
               {state?.hostLeft ? null : (
                 <>
                   <OverlayHint>
@@ -461,7 +486,7 @@ export function VersusBoard({
                     {player.name}
                     {player.id === youId ? ' · you' : ''}
                     {player.host ? ' · host' : ''}
-                    {status === 'playing' || status === 'over'
+                    {status === 'playing' || status === 'replay' || status === 'over'
                       ? snake?.alive
                         ? ''
                         : ' · out'

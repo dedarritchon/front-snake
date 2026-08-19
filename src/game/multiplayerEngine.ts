@@ -10,11 +10,25 @@ import {DIRECTION_DELTA, OPPOSITE} from './types';
 
 export const MP_MAX_PLAYERS = 4;
 export const MP_TICK_MS = BASE_TICK_MS;
+export const MP_REPLAY_TICK_MS = 280;
+export const MP_REPLAY_FRAMES = 8;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = ['#2a3816', '#1e4d6b', '#6b2e1e', '#3d2a58'] as const;
 
-export type MpStatus = 'lobby' | 'playing' | 'over';
+export type MpStatus = 'lobby' | 'playing' | 'replay' | 'over';
+export type MpDeathCause = 'wall' | 'self' | 'body' | 'head' | 'left';
+
+export interface MpDeath {
+  playerId: string;
+  cause: MpDeathCause;
+  otherId: string | null;
+}
+
+export interface MpSnapshot {
+  snakes: MpSnake[];
+  foods: Point[];
+}
 
 export interface MpPlayer {
   id: string;
@@ -47,6 +61,9 @@ export interface MpState {
   gridWidth: number;
   gridHeight: number;
   hostLeft: boolean;
+  lastDeaths: MpDeath[];
+  replay: MpSnapshot[];
+  replayIndex: number;
 }
 
 const SPAWNS: {body: Point[]; direction: Direction}[] = [
@@ -171,6 +188,119 @@ export function allReadyToStart(players: MpPlayer[]): boolean {
   return players.length >= 2 && players.every((player) => player.ready);
 }
 
+export function snapshotMp(state: MpState): MpSnapshot {
+  return {
+    snakes: state.snakes.map((snake) => ({
+      ...snake,
+      body: snake.body.map((point) => ({...point})),
+    })),
+    foods: state.foods.map((point) => ({...point})),
+  };
+}
+
+export function shouldSlowMo(previous: MpState, next: MpState): boolean {
+  if (next.status !== 'over') {
+    return false;
+  }
+  if (next.lastDeaths.length === 0) {
+    return false;
+  }
+  if (next.lastDeaths.every((death) => death.cause === 'left')) {
+    return false;
+  }
+  return previous.snakes.filter((snake) => snake.alive).length <= 2;
+}
+
+export function beginReplay(state: MpState, frames: MpSnapshot[]): MpState {
+  if (frames.length === 0) {
+    return state;
+  }
+  const first = frames[0];
+  return {
+    ...state,
+    status: 'replay',
+    snakes: first.snakes,
+    foods: first.foods,
+    replay: frames,
+    replayIndex: 0,
+  };
+}
+
+export function advanceReplay(state: MpState): MpState {
+  if (state.status !== 'replay') {
+    return state;
+  }
+  const nextIndex = state.replayIndex + 1;
+  if (nextIndex >= state.replay.length) {
+    return {
+      ...state,
+      status: 'over',
+      replay: [],
+      replayIndex: 0,
+    };
+  }
+  const frame = state.replay[nextIndex];
+  return {
+    ...state,
+    replayIndex: nextIndex,
+    snakes: frame.snakes,
+    foods: frame.foods,
+  };
+}
+
+export function describeDeaths(deaths: MpDeath[], snakes: MpSnake[]): string {
+  const nameOf = (id: string): string =>
+    snakes.find((snake) => snake.id === id)?.name ?? 'Player';
+  const lines: string[] = [];
+  const seenHead = new Set<string>();
+  for (const death of deaths) {
+    if (death.cause === 'head' && death.otherId) {
+      const key = [death.playerId, death.otherId].sort().join(':');
+      if (seenHead.has(key)) {
+        continue;
+      }
+      seenHead.add(key);
+      lines.push(`${nameOf(death.playerId)} and ${nameOf(death.otherId)} crashed`);
+      continue;
+    }
+    if (death.cause === 'wall') {
+      lines.push(`${nameOf(death.playerId)} hit the wall`);
+      continue;
+    }
+    if (death.cause === 'self') {
+      lines.push(`${nameOf(death.playerId)} bit themself`);
+      continue;
+    }
+    if (death.cause === 'body') {
+      lines.push(
+        death.otherId
+          ? `${nameOf(death.playerId)} ran into ${nameOf(death.otherId)}`
+          : `${nameOf(death.playerId)} hit a snake`,
+      );
+      continue;
+    }
+    lines.push(`${nameOf(death.playerId)} left`);
+  }
+  return lines.join(' · ');
+}
+
+function rememberDeath(
+  deaths: Map<string, MpDeath>,
+  playerId: string,
+  cause: MpDeathCause,
+  otherId: string | null = null,
+): void {
+  if (!deaths.has(playerId)) {
+    deaths.set(playerId, {playerId, cause, otherId});
+  }
+}
+
+function bodyOwner(snakes: MpSnake[], point: Point): MpSnake | undefined {
+  return snakes.find((snake) =>
+    snake.body.some((segment) => pointsEqual(segment, point)),
+  );
+}
+
 export function createPlayerId(): string {
   const bytes = new Uint8Array(6);
   crypto.getRandomValues(bytes);
@@ -207,6 +337,9 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     gridWidth: MP_GRID_WIDTH,
     gridHeight: MP_GRID_HEIGHT,
     hostLeft: false,
+    lastDeaths: [],
+    replay: [],
+    replayIndex: 0,
   };
 }
 
@@ -237,6 +370,9 @@ export function startMp(state: MpState, seed = state.seed): MpState {
     rngState: rng.state(),
     tick: 0,
     hostLeft: false,
+    lastDeaths: [],
+    replay: [],
+    replayIndex: 0,
   };
 }
 
@@ -272,7 +408,11 @@ export function killPlayer(state: MpState, playerId: string): MpState {
   const snakes = state.snakes.map((snake) =>
     snake.id === playerId ? {...snake, alive: false} : snake,
   );
-  return resolveWinner({...state, snakes});
+  return resolveWinner({
+    ...state,
+    snakes,
+    lastDeaths: [{playerId, cause: 'left', otherId: null}],
+  });
 }
 
 export function markHostLeft(state: MpState): MpState {
@@ -313,6 +453,7 @@ export function tickMp(state: MpState): MpState {
   const alive = state.snakes.filter((snake) => snake.alive);
   const nextHead = new Map<string, Point>();
   const nextDir = new Map<string, Direction>();
+  const deaths = new Map<string, MpDeath>();
 
   for (const snake of alive) {
     const dir =
@@ -337,6 +478,12 @@ export function tickMp(state: MpState): MpState {
     if (ids.length > 1) {
       for (const id of ids) {
         dying.add(id);
+        rememberDeath(
+          deaths,
+          id,
+          'head',
+          ids.find((other) => other !== id) ?? null,
+        );
       }
     }
   }
@@ -353,6 +500,8 @@ export function tickMp(state: MpState): MpState {
       if (pointsEqual(headA, b.body[0]) && pointsEqual(headB, a.body[0])) {
         dying.add(a.id);
         dying.add(b.id);
+        rememberDeath(deaths, a.id, 'head', b.id);
+        rememberDeath(deaths, b.id, 'head', a.id);
       }
     }
   }
@@ -385,6 +534,7 @@ export function tickMp(state: MpState): MpState {
     const head = nextHead.get(snake.id);
     if (!head) {
       dying.add(snake.id);
+      rememberDeath(deaths, snake.id, 'wall');
       continue;
     }
     if (
@@ -394,10 +544,17 @@ export function tickMp(state: MpState): MpState {
       head.y >= MP_GRID_HEIGHT
     ) {
       dying.add(snake.id);
+      rememberDeath(deaths, snake.id, 'wall');
       continue;
     }
     if (occupied.some((point) => pointsEqual(point, head))) {
       dying.add(snake.id);
+      const owner = bodyOwner(state.snakes, head);
+      if (!owner || owner.id === snake.id) {
+        rememberDeath(deaths, snake.id, 'self');
+      } else {
+        rememberDeath(deaths, snake.id, 'body', owner.id);
+      }
     }
   }
 
@@ -446,5 +603,6 @@ export function tickMp(state: MpState): MpState {
     foods,
     rngState: rng.state(),
     tick: state.tick + 1,
+    lastDeaths: deaths.size > 0 ? [...deaths.values()] : state.lastDeaths,
   });
 }

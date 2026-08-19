@@ -3,15 +3,22 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {snakeAudio} from '../audio/snakeAudio';
 import {isDirection, randomSeed} from '../game/engine';
 import {
+  advanceReplay,
   allReadyToStart,
+  beginReplay,
   createMpLobby,
   createPlayerId,
   killPlayer,
   markHostLeft,
+  MP_REPLAY_FRAMES,
+  MP_REPLAY_TICK_MS,
   MP_TICK_MS,
   type MpPlayer,
+  type MpSnapshot,
   type MpState,
   queueMpInput,
+  shouldSlowMo,
+  snapshotMp,
   startMp,
   tickMp,
 } from '../game/multiplayerEngine';
@@ -74,11 +81,13 @@ export function useMultiplayerRoom(
     const seed = randomSeed();
     snakeAudio.playStart();
     roomRef.current?.sendStart(seed);
+    historyRef.current = [];
     publish(startMp(createMpLobby(playersRef.current, seed), seed));
     clearReady();
   }, [clearReady, publish]);
   const beginMatchRef = useRef(beginMatch);
   beginMatchRef.current = beginMatch;
+  const historyRef = useRef<MpSnapshot[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,30 +226,52 @@ export function useMultiplayerRoom(
   }, [playerName]);
 
   useEffect(() => {
-    if (!isHost || state?.status !== 'playing') {
+    historyRef.current = [];
+  }, [roomId]);
+
+  useEffect(() => {
+    if (!isHost || (state?.status !== 'playing' && state?.status !== 'replay')) {
       return;
     }
+    const delay = state.status === 'replay' ? MP_REPLAY_TICK_MS : MP_TICK_MS;
     const id = window.setInterval(() => {
       const current = stateRef.current;
-      if (current?.status !== 'playing') {
+      if (!current) {
+        return;
+      }
+      if (current.status === 'replay') {
+        publish(advanceReplay(current));
+        return;
+      }
+      if (current.status !== 'playing') {
         return;
       }
       const next = tickMp(current);
+      historyRef.current = [
+        ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
+        snapshotMp(current),
+      ];
       if (next.snakes.some((snake, index) => snake.score > current.snakes[index].score)) {
         snakeAudio.playEat();
       }
       if (next.snakes.some((snake, index) => current.snakes[index].alive && !snake.alive)) {
         snakeAudio.playDie();
       }
+      if (shouldSlowMo(current, next)) {
+        publish(
+          beginReplay(next, [...historyRef.current, snapshotMp(next)]),
+        );
+        return;
+      }
       publish(next);
-    }, MP_TICK_MS);
+    }, delay);
     return () => {
       window.clearInterval(id);
     };
   }, [isHost, publish, state?.status]);
 
   useEffect(() => {
-    if (state?.status === 'playing') {
+    if (state?.status === 'playing' || state?.status === 'replay') {
       snakeAudio.syncStatus('playing');
     } else if (state?.status === 'over') {
       snakeAudio.syncStatus('gameover');
@@ -279,7 +310,7 @@ export function useMultiplayerRoom(
 
   const toggleReady = useCallback(() => {
     const status = stateRef.current?.status ?? 'lobby';
-    if (status === 'playing') {
+    if (status === 'playing' || status === 'replay') {
       return;
     }
     const next = !readyRef.current;
