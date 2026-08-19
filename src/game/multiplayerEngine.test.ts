@@ -20,9 +20,9 @@ import {
 } from './multiplayerEngine';
 
 const PLAYERS: MpPlayer[] = [
-  {id: 'a', name: 'A', color: '#111', host: true, ready: false},
-  {id: 'b', name: 'B', color: '#222', host: false, ready: false},
-  {id: 'c', name: 'C', color: '#333', host: false, ready: false},
+  {id: 'a', name: 'A', color: '#111', host: true, ready: false, joinedAt: 1},
+  {id: 'b', name: 'B', color: '#222', host: false, ready: false, joinedAt: 2},
+  {id: 'c', name: 'C', color: '#333', host: false, ready: false, joinedAt: 3},
 ];
 
 describe('multiplayerEngine', () => {
@@ -34,8 +34,8 @@ describe('multiplayerEngine', () => {
   it('caps the lobby at four snakes', () => {
     const extra: MpPlayer[] = [
       ...PLAYERS,
-      {id: 'd', name: 'D', color: '#444', host: false, ready: false},
-      {id: 'e', name: 'E', color: '#555', host: false, ready: false},
+      {id: 'd', name: 'D', color: '#444', host: false, ready: false, joinedAt: 4},
+      {id: 'e', name: 'E', color: '#555', host: false, ready: false, joinedAt: 5},
     ];
     expect(createMpLobby(extra, 1).snakes).toHaveLength(MP_MAX_PLAYERS);
   });

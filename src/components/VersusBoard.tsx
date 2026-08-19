@@ -8,6 +8,7 @@ import {
   type MpState,
 } from '../game/multiplayerEngine';
 import type {Point} from '../game/types';
+import type {RoomLink} from '../snakeClient/multiplayer';
 
 const LCD = {
   bg: '#b7c86a',
@@ -261,6 +262,18 @@ const Ghost = styled.button`
   padding: 8px;
 `;
 
+const LinkHint = styled.span`
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  opacity: 0.85;
+`;
+
 const RoomCode = styled.span`
   font-size: 12px;
   letter-spacing: 0.18em;
@@ -285,7 +298,7 @@ export function VersusBoard({
   ready,
   muted,
   error,
-  connected,
+  link,
   copied,
   roomId,
   onToggleMute,
@@ -300,7 +313,7 @@ export function VersusBoard({
   ready: boolean;
   muted: boolean;
   error: string | null;
-  connected: boolean;
+  link: RoomLink;
   copied: boolean;
   roomId: string;
   onToggleMute: () => void;
@@ -319,9 +332,11 @@ export function VersusBoard({
     color: snake.color,
     host: index === 0,
     ready: false,
+    joinedAt: index,
   }));
   const readyCount = seated.filter((player) => player.ready).length;
   const waitingOnReady = status !== 'playing';
+  const connected = link === 'connected';
   const canReady = connected && !error && waitingOnReady;
 
   return (
@@ -376,19 +391,25 @@ export function VersusBoard({
               <OverlayHint>{error}</OverlayHint>
             </Overlay>
           ) : null}
-          {!error && !connected ? (
+          {!error && link === 'connecting' && !state ? (
             <Overlay>
               Linking
               <OverlayHint>Joining room…</OverlayHint>
             </Overlay>
           ) : null}
-          {!error && connected && status === 'lobby' ? (
+          {!error && link === 'reconnecting' && status === 'playing' ? (
+            <LinkHint>Reconnecting…</LinkHint>
+          ) : null}
+          {!error && status === 'lobby' && (connected || link === 'reconnecting') ? (
             <Overlay>
               Room
               <RoomCode>{roomId}</RoomCode>
               <OverlayHint>
                 {seated.length}/4 · {readyCount} ready · {isHost ? 'Host' : 'Guest'}
               </OverlayHint>
+              {link === 'reconnecting' ? (
+                <OverlayHint>Reconnecting…</OverlayHint>
+              ) : null}
               <Action type="button" onClick={onCopyId}>
                 {copied ? 'Copied' : 'Copy room id'}
               </Action>

@@ -53,7 +53,7 @@ export function VersusSession({
     isHost,
     ready,
     error,
-    connected,
+    link,
     sendDirection,
     toggleReady,
   } = useMultiplayerRoom(roomId, name, claimHost);
@@ -130,7 +130,7 @@ export function VersusSession({
         ready={ready}
         muted={muted}
         error={error}
-        connected={connected}
+        link={link}
         copied={copied}
         roomId={roomId}
         onToggleMute={toggleMute}

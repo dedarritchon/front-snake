@@ -25,9 +25,37 @@ export function supabaseAnonKey(): string {
 
 let client: SupabaseClient | null = null;
 
+const realtimeStore = new Map<string, string>();
+const memoryStorage: Storage = {
+  get length() {
+    return realtimeStore.size;
+  },
+  clear() {
+    realtimeStore.clear();
+  },
+  getItem(key) {
+    return realtimeStore.get(key) ?? null;
+  },
+  key(index) {
+    return [...realtimeStore.keys()][index] ?? null;
+  },
+  removeItem(key) {
+    realtimeStore.delete(key);
+  },
+  setItem(key, value) {
+    realtimeStore.set(key, value);
+  },
+};
+
 export function snakeSupabase(): SupabaseClient {
   client ??= createClient(supabaseUrl(), supabaseAnonKey(), {
     auth: {persistSession: false, autoRefreshToken: false},
+    realtime: {
+      heartbeatIntervalMs: 15_000,
+      timeout: 20_000,
+      reconnectAfterMs: (tries) => Math.min(500 * 2 ** tries, 8_000),
+      sessionStorage: memoryStorage,
+    },
   });
   return client;
 }

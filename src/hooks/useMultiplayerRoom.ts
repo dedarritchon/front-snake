@@ -16,26 +16,33 @@ import {
   tickMp,
 } from '../game/multiplayerEngine';
 import type {Direction} from '../game/types';
-import {MultiplayerRoom} from '../snakeClient/multiplayer';
+import {
+  MultiplayerRoom,
+  roomIdentity,
+  type RoomLink,
+} from '../snakeClient/multiplayer';
 
 export function useMultiplayerRoom(
   roomId: string,
   playerName: string,
   claimHost: boolean,
 ) {
-  const playerIdRef = useRef(createPlayerId());
+  const identityRef = useRef(roomIdentity(roomId, createPlayerId));
+  identityRef.current = roomIdentity(roomId, createPlayerId);
   const [state, setState] = useState<MpState | null>(null);
   const [players, setPlayers] = useState<MpPlayer[]>([]);
   const [isHost, setIsHost] = useState(claimHost);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [link, setLink] = useState<RoomLink>('connecting');
 
   const stateRef = useRef(state);
   const isHostRef = useRef(isHost);
   const playersRef = useRef(players);
   const readyRef = useRef(ready);
   const roomRef = useRef<MultiplayerRoom | null>(null);
+  const nameRef = useRef(playerName);
+  nameRef.current = playerName;
   stateRef.current = state;
   isHostRef.current = isHost;
   playersRef.current = players;
@@ -46,6 +53,8 @@ export function useMultiplayerRoom(
     setState(next);
     roomRef.current?.sendState(next);
   }, []);
+  const publishRef = useRef(publish);
+  publishRef.current = publish;
 
   const clearReady = useCallback(() => {
     if (!readyRef.current) {
@@ -55,6 +64,8 @@ export function useMultiplayerRoom(
     setReady(false);
     void roomRef.current?.setReady(false);
   }, []);
+  const clearReadyRef = useRef(clearReady);
+  clearReadyRef.current = clearReady;
 
   const beginMatch = useCallback(() => {
     if (!isHostRef.current || !allReadyToStart(playersRef.current)) {
@@ -71,32 +82,57 @@ export function useMultiplayerRoom(
 
   useEffect(() => {
     let cancelled = false;
+    const identity = identityRef.current;
     const room = new MultiplayerRoom(
       roomId,
       {
-        playerId: playerIdRef.current,
-        name: playerName,
+        playerId: identity.playerId,
+        name: nameRef.current,
         host: claimHost,
         ready: false,
-        joinedAt: Date.now(),
+        joinedAt: identity.joinedAt,
       },
       {
+        onLink: (next) => {
+          if (!cancelled) {
+            setLink(next);
+            if (next === 'connected') {
+              setError(null);
+            }
+          }
+        },
+        onResynced: () => {
+          if (cancelled || !isHostRef.current) {
+            return;
+          }
+          const current = stateRef.current;
+          if (current) {
+            room.sendState(current);
+          }
+        },
         onRoster: (nextPlayers, hostId) => {
           if (cancelled) {
             return;
           }
           setPlayers(nextPlayers);
           playersRef.current = nextPlayers;
+          const current = stateRef.current;
+          const playing = current?.status === 'playing';
           const nowHost =
-            hostId === playerIdRef.current ||
-            (!hostId && nextPlayers[0]?.id === playerIdRef.current);
+            hostId === identity.playerId ||
+            (!hostId &&
+              !playing &&
+              current?.status !== 'over' &&
+              nextPlayers[0]?.id === identity.playerId);
+          if (nowHost && !isHostRef.current) {
+            void room.setHost(true);
+          }
           isHostRef.current = nowHost;
           setIsHost(nowHost);
 
-          const current = stateRef.current;
           if (nowHost) {
             if (!current || current.status === 'lobby') {
-              publish(
+              publishRef.current(
                 createMpLobby(nextPlayers, current?.seed ?? randomSeed()),
               );
             } else if (current.status === 'playing') {
@@ -110,7 +146,7 @@ export function useMultiplayerRoom(
                 }
               }
               if (next !== current) {
-                publish(next);
+                publishRef.current(next);
               }
             }
             if (allReadyToStart(nextPlayers)) {
@@ -139,7 +175,7 @@ export function useMultiplayerRoom(
           stateRef.current = next;
           setState(next);
           if (next.status === 'playing') {
-            clearReady();
+            clearReadyRef.current();
           }
         },
         onInput: (id, direction) => {
@@ -157,31 +193,28 @@ export function useMultiplayerRoom(
         onStart: () => {
           if (!isHostRef.current) {
             snakeAudio.playStart();
-            clearReady();
+            clearReadyRef.current();
           }
         },
       },
     );
     roomRef.current = room;
-    void room
-      .connect()
-      .then(() => {
-        if (!cancelled) {
-          setConnected(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError('Could not join room');
-        }
-      });
+    void room.connect().catch(() => {
+      if (!cancelled) {
+        setError('Could not join room');
+      }
+    });
 
     return () => {
       cancelled = true;
       roomRef.current = null;
       void room.disconnect();
     };
-  }, [claimHost, clearReady, playerName, publish, roomId]);
+  }, [claimHost, roomId]);
+
+  useEffect(() => {
+    void roomRef.current?.setName(playerName);
+  }, [playerName]);
 
   useEffect(() => {
     if (!isHost || state?.status !== 'playing') {
@@ -226,7 +259,7 @@ export function useMultiplayerRoom(
       if (!current) {
         return;
       }
-      const next = queueMpInput(current, playerIdRef.current, direction);
+      const next = queueMpInput(current, identityRef.current.playerId, direction);
       const changed = next.snakes.some(
         (snake, index) => snake.pending !== current.snakes[index].pending,
       );
@@ -256,13 +289,14 @@ export function useMultiplayerRoom(
   }, []);
 
   return {
-    playerId: playerIdRef.current,
+    playerId: identityRef.current.playerId,
     state,
     players,
     isHost,
     ready,
     error,
-    connected,
+    link,
+    connected: link === 'connected',
     sendDirection,
     toggleReady,
   };

@@ -22,6 +22,7 @@ export interface MpPlayer {
   color: string;
   host: boolean;
   ready: boolean;
+  joinedAt: number;
 }
 
 export interface MpSnake {
