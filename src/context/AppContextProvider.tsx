@@ -15,6 +15,11 @@ export function AppContextProvider({children}: {children: ReactNode}) {
     setFrontRecipients(null);
     setSelectedFrontRecipient(null);
 
+    if (!context) {
+      setFrontRecipients([]);
+      return;
+    }
+
     switch (context.type) {
       case 'message':
       case 'messageComposer':

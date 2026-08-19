@@ -15,6 +15,31 @@ function isFramed(): boolean {
   }
 }
 
+function fromFront(context: WebViewContext) {
+  const getConversationId = (): string | null => {
+    switch (context.type) {
+      case 'singleConversation':
+      case 'singleConversationPopover':
+        return context.conversation.id;
+      case 'multiConversations':
+      case 'noConversation':
+      case 'noConversationPopover':
+      case 'message':
+      case 'messageComposer':
+        return null;
+    }
+  };
+
+  return {
+    context,
+    guest: false,
+    conversationId: getConversationId(),
+    isAuthenticated:
+      context.authentication.status === ApplicationAuthenticationStatusesEnum.AUTHORIZED,
+    snakeClient: new SnakeClient(),
+  };
+}
+
 export function FrontContextProvider({children}: {children: ReactNode}) {
   const [context, setContext] = useState<WebViewContext | null>(null);
   const [timedOut, setTimedOut] = useState(() => !isFramed());
@@ -40,38 +65,24 @@ export function FrontContextProvider({children}: {children: ReactNode}) {
   }, []);
 
   const value = useMemo(() => {
-    if (!context) {
+    if (context) {
+      return fromFront(context);
+    }
+    if (!timedOut) {
       return null;
     }
-
-    const getConversationId = (): string | null => {
-      switch (context.type) {
-        case 'singleConversation':
-        case 'singleConversationPopover':
-          return context.conversation.id;
-        case 'multiConversations':
-        case 'noConversation':
-        case 'noConversationPopover':
-        case 'message':
-        case 'messageComposer':
-          return null;
-      }
-    };
-
-    const isAuthenticated =
-      context.authentication.status === ApplicationAuthenticationStatusesEnum.AUTHORIZED;
-
     return {
-      context,
-      conversationId: getConversationId(),
-      isAuthenticated,
+      context: null,
+      guest: true,
+      conversationId: null,
+      isAuthenticated: false,
       snakeClient: new SnakeClient(),
     };
-  }, [context]);
+  }, [context, timedOut]);
 
-  if (value) {
-    return <FrontContext.Provider value={value}>{children}</FrontContext.Provider>;
+  if (!value) {
+    return <OutsideFront loading />;
   }
 
-  return <OutsideFront loading={!timedOut} />;
+  return <FrontContext.Provider value={value}>{children}</FrontContext.Provider>;
 }

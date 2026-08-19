@@ -54,7 +54,7 @@ export default function SignIn() {
     clearError();
     setIsLoading(true);
     try {
-      await context.authenticate();
+      await context?.authenticate();
     } catch (error) {
       showError(error, 'Could not start authentication.');
     } finally {

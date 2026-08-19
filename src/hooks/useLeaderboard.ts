@@ -13,45 +13,48 @@ import {
 const EMPTY_BOARD: LeaderboardBoard = {domain: null, entries: [], you: null};
 
 export function useLeaderboard() {
-  const {context, snakeClient} = useFrontContext();
+  const {context, guest, snakeClient} = useFrontContext();
   const {showError} = useErrorBanner();
   const [board, setBoard] = useState<LeaderboardBoard>(EMPTY_BOARD);
   const [lastSubmit, setLastSubmit] = useState<SubmitRunResponse | null>(null);
 
   const [busy, setBusy] = useState<'start' | 'submit' | null>(null);
+  const email = guest ? '' : (context?.teammate.email ?? '');
+  const displayName =
+    context?.teammate.name?.trim() || email;
 
   const refreshBoard = useCallback(async () => {
-    if (!isLeaderboardConfigured()) {
+    if (!isLeaderboardConfigured() || email === '') {
       return;
     }
     try {
-      setBoard(await snakeClient.leaderboard.board(context.teammate.email));
+      setBoard(await snakeClient.leaderboard.board(email));
     } catch {
       // board is optional
     }
-  }, [context.teammate.email, snakeClient]);
+  }, [email, snakeClient]);
 
   useEffect(() => {
     void refreshBoard();
   }, [refreshBoard]);
 
   const start = useCallback(async (): Promise<RankedSession | null> => {
-    if (!isLeaderboardConfigured()) {
+    if (!isLeaderboardConfigured() || email === '') {
       return null;
     }
     setLastSubmit(null);
     setBusy('start');
     try {
       return await snakeClient.leaderboard.start({
-        email: context.teammate.email,
-        displayName: context.teammate.name?.trim() || context.teammate.email,
+        email,
+        displayName,
       });
     } catch {
       return null;
     } finally {
       setBusy(null);
     }
-  }, [context.teammate.email, context.teammate.name, snakeClient]);
+  }, [displayName, email, snakeClient]);
 
   const submit = useCallback(
     (sessionId: string, directions: Direction[]) => {
@@ -61,7 +64,7 @@ export function useLeaderboard() {
           const result = await snakeClient.leaderboard.submit(
             sessionId,
             directions,
-            context.teammate.name?.trim() || context.teammate.email,
+            displayName,
           );
           setLastSubmit(result);
           setBoard(result.board);
@@ -72,7 +75,7 @@ export function useLeaderboard() {
         }
       })();
     },
-    [context.teammate.email, context.teammate.name, showError, snakeClient],
+    [displayName, email, showError, snakeClient],
   );
 
   return {board, lastSubmit, start, submit, busy};

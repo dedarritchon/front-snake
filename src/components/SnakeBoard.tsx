@@ -1,5 +1,6 @@
 import {styled} from 'styled-components';
 
+import {frontLogoBait, frontLogoCells} from '../game/logo';
 import {gameLevel} from '../game/engine';
 import type {GameState, Point} from '../game/types';
 import type {
@@ -136,11 +137,30 @@ const Cell = styled.div<{
   justify-content: center;
 `;
 
-const SnakeBlock = styled.div`
-  width: 84%;
-  height: 84%;
+const SnakeBlock = styled.div<{
+  $logo?: boolean;
+}>`
+  width: ${(p) => (p.$logo ? '78%' : '84%')};
+  height: ${(p) => (p.$logo ? '78%' : '84%')};
   background: ${LCD.pixel};
   border-radius: 22%;
+  opacity: ${(p) => (p.$logo ? 0.92 : 1)};
+`;
+
+const ReadyHint = styled.div`
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 12%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.5;
 `;
 
 const FoodGlyph = styled.div`
@@ -217,6 +237,7 @@ const OverlayHint = styled.span`
 interface SnakeBoardProps {
   state: GameState;
   playerLabel: string;
+  guest?: boolean;
   muted: boolean;
   board: LeaderboardBoard;
   lastSubmit: SubmitRunResponse | null;
@@ -232,6 +253,7 @@ function segmentKey(point: Point, index: number): string {
 export function SnakeBoard({
   state,
   playerLabel,
+  guest,
   muted,
   board,
   lastSubmit,
@@ -240,6 +262,9 @@ export function SnakeBoard({
   onPause,
 }: SnakeBoardProps) {
   const {snake, foods, gridWidth, gridHeight, score, status} = state;
+  const showTitle = !busy && status === 'ready';
+  const logo = showTitle ? frontLogoCells(gridWidth, gridHeight) : [];
+  const bait = showTitle ? frontLogoBait(gridWidth, gridHeight) : null;
 
   return (
     <Shell>
@@ -256,28 +281,56 @@ export function SnakeBoard({
 
       <BoardFrame>
         <Board $cols={gridWidth} $rows={gridHeight}>
-          {snake.map((segment, index) => (
+          {!showTitle
+            ? snake.map((segment, index) => (
+                <Cell
+                  key={segmentKey(segment, index)}
+                  $x={segment.x}
+                  $y={segment.y}
+                  $cols={gridWidth}
+                  $rows={gridHeight}
+                >
+                  <SnakeBlock />
+                </Cell>
+              ))
+            : null}
+          {!showTitle
+            ? foods.map((food, index) => (
+                <Cell
+                  key={`food-${food.x}-${food.y}-${index}`}
+                  $x={food.x}
+                  $y={food.y}
+                  $cols={gridWidth}
+                  $rows={gridHeight}
+                >
+                  <FoodGlyph>
+                    <FoodCenter />
+                  </FoodGlyph>
+                </Cell>
+              ))
+            : null}
+          {bait ? (
             <Cell
-              key={segmentKey(segment, index)}
-              $x={segment.x}
-              $y={segment.y}
-              $cols={gridWidth}
-              $rows={gridHeight}
-            >
-              <SnakeBlock />
-            </Cell>
-          ))}
-          {foods.map((food, index) => (
-            <Cell
-              key={`food-${food.x}-${food.y}-${index}`}
-              $x={food.x}
-              $y={food.y}
+              key={`logo-bait-${bait.x}-${bait.y}`}
+              $x={bait.x}
+              $y={bait.y}
               $cols={gridWidth}
               $rows={gridHeight}
             >
               <FoodGlyph>
                 <FoodCenter />
               </FoodGlyph>
+            </Cell>
+          ) : null}
+          {logo.map((cell) => (
+            <Cell
+              key={`logo-${cell.x}-${cell.y}`}
+              $x={cell.x}
+              $y={cell.y}
+              $cols={gridWidth}
+              $rows={gridHeight}
+            >
+              <SnakeBlock $logo />
             </Cell>
           ))}
 
@@ -290,10 +343,13 @@ export function SnakeBoard({
             </Overlay>
           ) : null}
           {!busy && status === 'ready' ? (
-            <Overlay>
+            <ReadyHint>
               Snake
               <OverlayHint>Arrows / WASD to play</OverlayHint>
-            </Overlay>
+              {guest ? (
+                <OverlayHint>Guest · ranks only in Front</OverlayHint>
+              ) : null}
+            </ReadyHint>
           ) : null}
           {!busy && status === 'paused' ? (
             <Overlay>

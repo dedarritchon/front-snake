@@ -106,9 +106,15 @@ export function ContextCommands() {
   const [runningName, setRunningName] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{name: string; body: string} | null>(null);
 
-  const commands = useMemo(() => listAvailableContextCommands(context), [context]);
+  const commands = useMemo(
+    () => (context ? listAvailableContextCommands(context) : []),
+    [context],
+  );
 
   const handleRun = async (name: string) => {
+    if (!context) {
+      return;
+    }
     clearError();
     setRunningName(name);
     try {
@@ -129,7 +135,8 @@ export function ContextCommands() {
     <Section>
       <SectionLabel>Context commands</SectionLabel>
       <Hint>
-        From <code>context.functionArities</code> for type <code>{context.type}</code>. Click to call and inspect the
+        From <code>context.functionArities</code> for type{' '}
+        <code>{context?.type ?? 'guest'}</code>. Click to call and inspect the
         result.
       </Hint>
 

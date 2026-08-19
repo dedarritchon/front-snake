@@ -4,7 +4,8 @@ import {createContext, useContext} from 'react';
 import type {SnakeClient} from '../snakeClient';
 
 interface FrontContextType {
-  context: WebViewContext;
+  context: WebViewContext | null;
+  guest: boolean;
   conversationId: string | null;
   isAuthenticated: boolean;
   snakeClient: SnakeClient;

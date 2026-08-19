@@ -1,3 +1,4 @@
+import type {WebViewContext} from '@frontapp/plugin-sdk/dist/webViewSdkTypes';
 import {styled} from 'styled-components';
 
 import {SnakeBoard} from '../components/SnakeBoard';
@@ -23,9 +24,7 @@ function playerName(email: string, name?: string | null): string {
   return email.split('@')[0] || 'Player';
 }
 
-function getConversationMeta(
-  context: ReturnType<typeof useFrontContext>['context'],
-): {
+function getConversationMeta(context: WebViewContext): {
   levelId: string;
   levelTitle: string;
   levelSubtitle?: string;
@@ -53,22 +52,26 @@ function getConversationMeta(
 }
 
 export function Home() {
-  const {context} = useFrontContext();
-  const {levelId} = getConversationMeta(context);
+  const {context, guest} = useFrontContext();
+  const {levelId} = context
+    ? getConversationMeta(context)
+    : {levelId: LOBBY_LEVEL_ID};
   const {board, lastSubmit, start, submit, busy} = useLeaderboard();
   const {state, muted, toggleMute, pause} = useSnakeGame(levelId, {
     start,
     submit,
     locked: busy !== null,
   });
-  const teammate = context.teammate;
-  const label = playerName(teammate.email, teammate.name);
+  const label = guest
+    ? 'Guest'
+    : playerName(context?.teammate.email ?? '', context?.teammate.name);
 
   return (
     <Page>
       <SnakeBoard
         state={state}
         playerLabel={label}
+        guest={guest}
         muted={muted}
         board={board}
         lastSubmit={lastSubmit}
