@@ -18,6 +18,8 @@ export interface GameState {
   highScore: number;
   gridWidth: number;
   gridHeight: number;
+  seed: number;
+  rngState: number;
 }
 
 export const OPPOSITE: Record<Direction, Direction> = {

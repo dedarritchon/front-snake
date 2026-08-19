@@ -24,7 +24,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm test
       - run: npm run build
+        env:
+          VITE_SNAKE_API_URL: https://rdiqgzimnkxqimhvhmwz.supabase.co/functions/v1/snake-leaderboard
+          VITE_SUPABASE_ANON_KEY: sb_publishable_jmVRwMMu1makeVVLm908ng_lYVZ51J5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

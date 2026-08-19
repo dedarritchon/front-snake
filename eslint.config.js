@@ -11,7 +11,7 @@ import globals from 'globals';
 import {configs as tseslintConfigs} from 'typescript-eslint';
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'supabase']),
   {
     files: ['**/*.{js,ts,tsx}'],
     extends: [

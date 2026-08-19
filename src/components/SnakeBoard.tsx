@@ -1,8 +1,11 @@
-import {useEffect, useRef} from 'react';
 import {styled} from 'styled-components';
 
-import {computeGridSize, type GridSize} from '../game/snakeEngine';
 import type {GameState, Point} from '../game/types';
+import type {
+  LeaderboardBoard,
+  SubmitRunResponse,
+} from '../snakeClient/leaderboard';
+import {Leaderboard} from './Leaderboard';
 
 const LCD = {
   bg: '#b7c86a',
@@ -17,7 +20,12 @@ const Shell = styled.div`
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(40, 50, 20, 0.12) 100%), ${LCD.bg};
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 55%,
+      rgba(40, 50, 20, 0.12) 100%
+    ),
+    ${LCD.bg};
   user-select: none;
   touch-action: none;
   font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
@@ -209,8 +217,10 @@ interface SnakeBoardProps {
   levelSubtitle?: string;
   playerLabel: string;
   muted: boolean;
+  ranked: boolean;
+  board: LeaderboardBoard;
+  lastSubmit: SubmitRunResponse | null;
   onToggleMute: () => void;
-  onGridSize: (size: GridSize) => void;
 }
 
 function segmentKey(point: Point, index: number): string {
@@ -223,39 +233,12 @@ export function SnakeBoard({
   levelSubtitle,
   playerLabel,
   muted,
+  ranked,
+  board,
+  lastSubmit,
   onToggleMute,
-  onGridSize,
 }: SnakeBoardProps) {
   const {snake, foods, gridWidth, gridHeight, score, highScore, status} = state;
-  const boardRef = useRef<HTMLDivElement>(null);
-  const onGridSizeRef = useRef(onGridSize);
-  onGridSizeRef.current = onGridSize;
-
-  useEffect(() => {
-    const node = boardRef.current;
-    if (!node) {
-      return;
-    }
-
-    const publish = (width: number, height: number) => {
-      onGridSizeRef.current(computeGridSize(width, height));
-    };
-
-    publish(node.clientWidth, node.clientHeight);
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const {width, height} = entry.contentRect;
-        publish(width, height);
-        break;
-      }
-    });
-
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
 
   return (
     <Shell>
@@ -266,16 +249,26 @@ export function SnakeBoard({
             <LevelId>{levelTitle}</LevelId>
             {levelSubtitle ? <LevelMeta>{levelSubtitle}</LevelMeta> : null}
           </LevelCopy>
-          <MuteButton type="button" onClick={onToggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
+          <MuteButton
+            type="button"
+            onClick={onToggleMute}
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
             {muted ? 'Muted' : 'Sound'}
           </MuteButton>
         </LevelTop>
       </LevelBar>
 
       <BoardFrame>
-        <Board ref={boardRef} $cols={gridWidth} $rows={gridHeight}>
+        <Board $cols={gridWidth} $rows={gridHeight}>
           {snake.map((segment, index) => (
-            <Cell key={segmentKey(segment, index)} $x={segment.x} $y={segment.y} $cols={gridWidth} $rows={gridHeight}>
+            <Cell
+              key={segmentKey(segment, index)}
+              $x={segment.x}
+              $y={segment.y}
+              $cols={gridWidth}
+              $rows={gridHeight}
+            >
               <SnakeBlock />
             </Cell>
           ))}
@@ -309,6 +302,11 @@ export function SnakeBoard({
             <Overlay>
               Game over
               <OverlayHint>Score {score}</OverlayHint>
+              {lastSubmit ? (
+                <OverlayHint>
+                  Ranked {lastSubmit.score} · #{lastSubmit.rank}
+                </OverlayHint>
+              ) : null}
               <OverlayHint>Arrow or Enter to retry</OverlayHint>
             </Overlay>
           ) : null}
@@ -321,6 +319,7 @@ export function SnakeBoard({
           {playerLabel} {highScore}
         </span>
       </Hud>
+      <Leaderboard board={board} ranked={ranked} />
     </Shell>
   );
 }

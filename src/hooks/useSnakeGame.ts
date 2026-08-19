@@ -1,10 +1,10 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 
 import {snakeAudio} from '../audio/snakeAudio';
+import {randomSeed} from '../game/engine';
 import {
   createFreshState,
   createInitialState,
-  type GridSize,
   queueDirection,
   saveGameState,
   tick,
@@ -12,39 +12,33 @@ import {
   togglePause,
 } from '../game/snakeEngine';
 import type {Direction, GameState} from '../game/types';
+import type {RankedSession} from '../snakeClient/leaderboard';
 
-export function useSnakeGame(levelId: string, gridSize: GridSize) {
-  const gridRef = useRef(gridSize);
-  gridRef.current = gridSize;
+interface RankedHandlers {
+  start: () => Promise<RankedSession | null>;
+  submit: (sessionId: string, directions: Direction[]) => void;
+}
 
+export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
   const [state, setState] = useState<GameState>(() =>
-    createInitialState(levelId, gridSize.gridWidth, gridSize.gridHeight),
+    createInitialState(levelId),
   );
   const [muted, setMuted] = useState(() => snakeAudio.isMuted());
+  const [rankedActive, setRankedActive] = useState(false);
+  const sessionRef = useRef<RankedSession | null>(null);
+  const directionsRef = useRef<Direction[]>([]);
+  const startingRef = useRef(false);
+  const rankedRef = useRef(ranked);
+  rankedRef.current = ranked;
 
   const tickMs = tickMsForSnakeLength(state.snake.length);
 
   useEffect(() => {
-    setState(createInitialState(levelId, gridRef.current.gridWidth, gridRef.current.gridHeight));
+    sessionRef.current = null;
+    directionsRef.current = [];
+    setRankedActive(false);
+    setState(createInitialState(levelId));
   }, [levelId]);
-
-  useEffect(() => {
-    setState((prev) => {
-      if (prev.status !== 'ready' && prev.status !== 'gameover') {
-        return prev;
-      }
-      if (prev.gridWidth === gridSize.gridWidth && prev.gridHeight === gridSize.gridHeight) {
-        return prev;
-      }
-      if (prev.status === 'ready' && prev.score === 0) {
-        return createFreshState(prev.levelId, gridSize.gridWidth, gridSize.gridHeight);
-      }
-      if (prev.status === 'gameover') {
-        return createFreshState(prev.levelId, gridSize.gridWidth, gridSize.gridHeight);
-      }
-      return prev;
-    });
-  }, [gridSize.gridWidth, gridSize.gridHeight]);
 
   useEffect(() => {
     saveGameState(state);
@@ -60,20 +54,39 @@ export function useSnakeGame(levelId: string, gridSize: GridSize) {
     };
   }, []);
 
-  const setDirection = useCallback((direction: Direction) => {
-    void snakeAudio.unlock();
-    setState((prev) => {
-      if (prev.status === 'gameover') {
-        const {gridWidth, gridHeight} = gridRef.current;
-        snakeAudio.playStart();
-        return queueDirection(createFreshState(prev.levelId, gridWidth, gridHeight), direction);
-      }
-      if (prev.status === 'ready') {
-        snakeAudio.playStart();
-      }
-      return queueDirection(prev, direction);
-    });
+  const beginRun = useCallback(async (direction: Direction) => {
+    if (startingRef.current) {
+      return;
+    }
+    startingRef.current = true;
+    try {
+      snakeAudio.playStart();
+      const session = (await rankedRef.current?.start()) ?? null;
+      sessionRef.current = session;
+      directionsRef.current = [];
+      setRankedActive(session !== null);
+      const seed = session?.seed ?? randomSeed();
+      setState((prev) =>
+        queueDirection(createFreshState(prev.levelId, seed), direction),
+      );
+    } finally {
+      startingRef.current = false;
+    }
   }, []);
+
+  const setDirection = useCallback(
+    (direction: Direction) => {
+      void snakeAudio.unlock();
+      setState((prev) => {
+        if (prev.status === 'gameover' || prev.status === 'ready') {
+          void beginRun(direction);
+          return prev;
+        }
+        return queueDirection(prev, direction);
+      });
+    },
+    [beginRun],
+  );
 
   const pause = useCallback(() => {
     void snakeAudio.unlock();
@@ -88,15 +101,15 @@ export function useSnakeGame(levelId: string, gridSize: GridSize) {
   const startOrRestart = useCallback(() => {
     void snakeAudio.unlock();
     setState((prev) => {
-      if (prev.status === 'ready') {
-        snakeAudio.playStart();
-        return queueDirection(prev, prev.pendingDirection);
+      if (prev.status === 'ready' || prev.status === 'gameover') {
+        void beginRun(
+          prev.status === 'ready' ? prev.pendingDirection : 'right',
+        );
+        return prev;
       }
-      const {gridWidth, gridHeight} = gridRef.current;
-      snakeAudio.playStart();
-      return queueDirection(createFreshState(prev.levelId, gridWidth, gridHeight), 'right');
+      return prev;
     });
-  }, []);
+  }, [beginRun]);
 
   const toggleMute = useCallback(() => {
     const next = snakeAudio.toggleMute();
@@ -113,12 +126,20 @@ export function useSnakeGame(levelId: string, gridSize: GridSize) {
 
     const id = window.setInterval(() => {
       setState((prev) => {
+        const applied = prev.pendingDirection;
         const next = tick(prev);
         if (next.score > prev.score) {
           snakeAudio.playEat();
         }
+        if (next.status === 'playing' || next.status === 'gameover') {
+          directionsRef.current.push(applied);
+        }
         if (next.status === 'gameover' && prev.status === 'playing') {
           snakeAudio.playDie();
+          const session = sessionRef.current;
+          if (session) {
+            rankedRef.current?.submit(session.sessionId, directionsRef.current);
+          }
         }
         return next;
       });
@@ -174,5 +195,13 @@ export function useSnakeGame(levelId: string, gridSize: GridSize) {
     };
   }, [pause, setDirection, startOrRestart, toggleMute]);
 
-  return {state, setDirection, pause, startOrRestart, muted, toggleMute};
+  return {
+    state,
+    setDirection,
+    pause,
+    startOrRestart,
+    muted,
+    toggleMute,
+    rankedActive,
+  };
 }

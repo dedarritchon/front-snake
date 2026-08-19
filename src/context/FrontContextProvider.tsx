@@ -1,8 +1,6 @@
 import {contextUpdates} from '@frontapp/plugin-sdk';
 import type {WebViewContext} from '@frontapp/plugin-sdk/dist/webViewSdkTypes';
-import type {ApplicationCancelToken} from '@frontapp/ui-bridge/dist/internal/asyncTypesV2';
 import {ApplicationAuthenticationStatusesEnum} from '@frontapp/ui-bridge/dist/internal/contextTypesV2';
-import type {HttpRelayRequest} from '@frontapp/ui-bridge/dist/internal/relayTypesV2';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
 
 import {SnakeClient} from '../snakeClient';
@@ -42,10 +40,7 @@ export function FrontContextProvider({children}: {children: ReactNode}) {
 
     const isAuthenticated = context.authentication.status === ApplicationAuthenticationStatusesEnum.AUTHORIZED;
 
-    const snakeClient = new SnakeClient({
-      relay: (request: HttpRelayRequest, cancelToken?: ApplicationCancelToken) =>
-        context.relayHttp(request, cancelToken),
-    });
+    const snakeClient = new SnakeClient();
 
     return {
       context,

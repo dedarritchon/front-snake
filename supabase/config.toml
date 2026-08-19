@@ -1,0 +1,4 @@
+project_id = "rdiqgzimnkxqimhvhmwz"
+
+[functions.snake-leaderboard]
+verify_jwt = false
