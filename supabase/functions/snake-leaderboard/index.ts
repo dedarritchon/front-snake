@@ -86,10 +86,21 @@ function parseDirections(value: unknown): Direction[] | null {
   return value;
 }
 
+function emailDomain(email: string): string | null {
+  const domain = email.split('@')[1]?.toLowerCase();
+  return domain && domain.length > 0 ? domain : null;
+}
+
 async function board(supabase: ReturnType<typeof createClient>, email?: string) {
+  const domain = email ? emailDomain(email) : null;
+  if (!email || !domain) {
+    return {domain: null, entries: [] as ScoreRow[], you: null};
+  }
+
   const {data, error} = await supabase
     .from('snake_scores')
     .select('teammate_email, display_name, best_score')
+    .eq('email_domain', domain)
     .order('best_score', {ascending: false})
     .order('updated_at', {ascending: true})
     .limit(10);
@@ -101,28 +112,27 @@ async function board(supabase: ReturnType<typeof createClient>, email?: string) 
   const entries = (data ?? []) as ScoreRow[];
   let you: {rank: number; bestScore: number; displayName: string} | null = null;
 
-  if (email) {
-    const {data: mine} = await supabase
-      .from('snake_scores')
-      .select('teammate_email, display_name, best_score')
-      .eq('teammate_email', email)
-      .maybeSingle();
+  const {data: mine} = await supabase
+    .from('snake_scores')
+    .select('teammate_email, display_name, best_score')
+    .eq('teammate_email', email)
+    .maybeSingle();
 
-    if (mine) {
-      const row = mine as ScoreRow;
-      const {count} = await supabase
-        .from('snake_scores')
-        .select('*', {count: 'exact', head: true})
-        .gt('best_score', row.best_score);
-      you = {
-        rank: (count ?? 0) + 1,
-        bestScore: row.best_score,
-        displayName: row.display_name,
-      };
-    }
+  if (mine) {
+    const row = mine as ScoreRow;
+    const {count} = await supabase
+      .from('snake_scores')
+      .select('*', {count: 'exact', head: true})
+      .eq('email_domain', domain)
+      .gt('best_score', row.best_score);
+    you = {
+      rank: (count ?? 0) + 1,
+      bestScore: row.best_score,
+      displayName: row.display_name,
+    };
   }
 
-  return {entries, you};
+  return {domain, entries, you};
 }
 
 Deno.serve(async (req) => {
@@ -140,7 +150,8 @@ Deno.serve(async (req) => {
     const action = routeAction(url);
 
     if (req.method === 'GET' && (action === 'board' || action === '')) {
-      return json(200, await board(supabase));
+      const email = parseEmail(url.searchParams.get('email'));
+      return json(200, await board(supabase, email ?? undefined));
     }
 
     if (req.method !== 'POST') {

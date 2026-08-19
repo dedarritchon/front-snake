@@ -10,7 +10,7 @@ import {
   type SubmitRunResponse,
 } from '../snakeClient/leaderboard';
 
-const EMPTY_BOARD: LeaderboardBoard = {entries: [], you: null};
+const EMPTY_BOARD: LeaderboardBoard = {domain: null, entries: [], you: null};
 
 export function useLeaderboard() {
   const {context, snakeClient} = useFrontContext();
@@ -23,11 +23,11 @@ export function useLeaderboard() {
       return;
     }
     try {
-      setBoard(await snakeClient.leaderboard.board());
+      setBoard(await snakeClient.leaderboard.board(context.teammate.email));
     } catch {
       // board is optional
     }
-  }, [snakeClient]);
+  }, [context.teammate.email, snakeClient]);
 
   useEffect(() => {
     void refreshBoard();

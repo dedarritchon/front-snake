@@ -5,6 +5,7 @@ export interface LeaderboardEntry {
 }
 
 export interface LeaderboardBoard {
+  domain: string | null;
   entries: LeaderboardEntry[];
   you: {rank: number; bestScore: number; displayName: string} | null;
 }
@@ -66,8 +67,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export class LeaderboardClient {
-  board(): Promise<LeaderboardBoard> {
-    return request<LeaderboardBoard>('/board');
+  board(email: string): Promise<LeaderboardBoard> {
+    const query = new URLSearchParams({email});
+    return request<LeaderboardBoard>(`/board?${query.toString()}`);
   }
 
   start(player: PlayerIdentity): Promise<StartSessionResponse> {

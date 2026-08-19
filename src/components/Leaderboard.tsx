@@ -9,7 +9,7 @@ const LCD = {
 
 const Wrap = styled.div`
   flex: 0 0 auto;
-  padding: 0 12px 12px;
+  padding: 0 8px 8px;
   border-top: 2px solid ${LCD.border};
 `;
 
@@ -30,7 +30,7 @@ const List = styled.ol`
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 92px;
+  max-height: 64px;
   overflow: auto;
 `;
 
@@ -65,7 +65,7 @@ export function Leaderboard({
   return (
     <Wrap>
       <Title>
-        <span>Company</span>
+        <span>{board.domain ?? 'Company'}</span>
         <span>{ranked ? 'Ranked' : 'Local'}</span>
       </Title>
       <List>
