@@ -1,8 +1,10 @@
 import type {WebViewContext} from '@frontapp/plugin-sdk/dist/webViewSdkTypes';
+import {useNavigate} from 'react-router';
 import {styled} from 'styled-components';
 
 import {SnakeBoard} from '../components/SnakeBoard';
 import {useFrontContext} from '../context/FrontContext';
+import {createRoomId} from '../game/multiplayerEngine';
 import {LOBBY_LEVEL_ID} from '../game/snakeEngine';
 import {useLeaderboard} from '../hooks/useLeaderboard';
 import {useSnakeGame} from '../hooks/useSnakeGame';
@@ -52,6 +54,7 @@ function getConversationMeta(context: WebViewContext): {
 }
 
 export function Home() {
+  const navigate = useNavigate();
   const {context, guest} = useFrontContext();
   const {levelId} = context
     ? getConversationMeta(context)
@@ -78,6 +81,9 @@ export function Home() {
         busy={busy}
         onToggleMute={toggleMute}
         onPause={pause}
+        onVersus={() => {
+          void navigate(`/room/${createRoomId()}`, {state: {host: true}});
+        }}
       />
     </Page>
   );

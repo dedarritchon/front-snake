@@ -1,13 +1,7 @@
 import {styled} from 'styled-components';
 
-import {gameLevel} from '../game/engine';
-import {frontLogoBait, frontLogoCells} from '../game/logo';
-import type {GameState, Point} from '../game/types';
-import type {
-  LeaderboardBoard,
-  SubmitRunResponse,
-} from '../snakeClient/leaderboard';
-import {Leaderboard} from './Leaderboard';
+import type {MpSnake, MpState} from '../game/multiplayerEngine';
+import type {Point} from '../game/types';
 
 const LCD = {
   bg: '#b7c86a',
@@ -107,18 +101,50 @@ const Board = styled.div<{
 const Dock = styled.div`
   flex: 0 0 auto;
   border-top: 2px solid ${LCD.border};
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 `;
 
-const Hud = styled.div`
+const Roster = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const RosterRow = styled.div`
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  padding: 8px 8px 0;
-  font-size: 11px;
+  gap: 8px;
+  font-size: 7px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  line-height: 1.3;
+  line-height: 1.4;
+`;
+
+const RosterName = styled.span`
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  align-items: center;
+`;
+
+const Swatch = styled.span<{
+  $color: string;
+}>`
+  width: 8px;
+  height: 8px;
+  background: ${(p) => p.$color};
+  flex: 0 0 auto;
+  margin-top: 1px;
+`;
+
+const Name = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const Cell = styled.div<{
@@ -138,29 +164,14 @@ const Cell = styled.div<{
 `;
 
 const SnakeBlock = styled.div<{
-  $logo?: boolean;
+  $color: string;
+  $dead?: boolean;
 }>`
-  width: ${(p) => (p.$logo ? '78%' : '84%')};
-  height: ${(p) => (p.$logo ? '78%' : '84%')};
-  background: ${LCD.pixel};
+  width: 84%;
+  height: 84%;
+  background: ${(p) => p.$color};
   border-radius: 22%;
-  opacity: ${(p) => (p.$logo ? 0.92 : 1)};
-`;
-
-const ReadyHint = styled.div`
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: 12%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  font-size: 8px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-align: center;
-  line-height: 1.5;
+  opacity: ${(p) => (p.$dead ? 0.35 : 1)};
 `;
 
 const FoodGlyph = styled.div`
@@ -176,7 +187,6 @@ const FoodGlyph = styled.div`
     border-radius: 1px;
   }
 
-  /* vertical petal */
   &::before {
     left: 38%;
     top: 8%;
@@ -184,7 +194,6 @@ const FoodGlyph = styled.div`
     height: 84%;
   }
 
-  /* horizontal petal */
   &::after {
     left: 8%;
     top: 38%;
@@ -199,16 +208,6 @@ const FoodCenter = styled.div`
   background: ${LCD.bg};
   border-radius: 1px;
   z-index: 1;
-`;
-
-const HudName = styled.span`
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  font-size: 8px;
-  letter-spacing: 0.04em;
 `;
 
 const Overlay = styled.div`
@@ -234,56 +233,77 @@ const OverlayHint = styled.span`
   line-height: 1.5;
 `;
 
-const VersusButton = styled.button`
-  margin-top: 4px;
+const Action = styled.button`
   border: 2px solid ${LCD.border};
   background: ${LCD.pixel};
   color: ${LCD.bg};
   font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 8px;
+`;
+
+const Ghost = styled.button`
+  border: 2px solid ${LCD.border};
+  background: transparent;
+  color: ${LCD.pixel};
+  font-family: inherit;
   font-size: 7px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 8px 10px;
+  padding: 8px;
 `;
 
-interface SnakeBoardProps {
-  state: GameState;
-  playerLabel: string;
-  guest?: boolean;
-  muted: boolean;
-  board: LeaderboardBoard;
-  lastSubmit: SubmitRunResponse | null;
-  busy: 'start' | 'submit' | null;
-  onToggleMute: () => void;
-  onPause: () => void;
-  onVersus?: () => void;
+function segmentKey(snakeId: string, point: Point, index: number): string {
+  return `${snakeId}-${point.x}-${point.y}-${index}`;
 }
 
-function segmentKey(point: Point, index: number): string {
-  return `${point.x}-${point.y}-${index}`;
+function winnerName(state: MpState): string {
+  if (!state.winnerId) {
+    return 'Draw';
+  }
+  return state.snakes.find((snake) => snake.id === state.winnerId)?.name ?? 'Win';
 }
 
-export function SnakeBoard({
+export function VersusBoard({
   state,
-  playerLabel,
-  guest,
+  youId,
+  isHost,
   muted,
-  board,
-  lastSubmit,
-  busy,
+  error,
+  connected,
+  copied,
+  roomUrl,
   onToggleMute,
-  onPause,
-  onVersus,
-}: SnakeBoardProps) {
-  const {snake, foods, gridWidth, gridHeight, score, status} = state;
-  const showTitle = !busy && status === 'ready';
-  const logo = showTitle ? frontLogoCells(gridWidth, gridHeight) : [];
-  const bait = showTitle ? frontLogoBait(gridWidth, gridHeight) : null;
+  onCopyLink,
+  onStart,
+  onSolo,
+}: {
+  state: MpState | null;
+  youId: string;
+  isHost: boolean;
+  muted: boolean;
+  error: string | null;
+  connected: boolean;
+  copied: boolean;
+  roomUrl: string;
+  onToggleMute: () => void;
+  onCopyLink: () => void;
+  onStart: () => void;
+  onSolo: () => void;
+}) {
+  const cols = state?.gridWidth ?? 19;
+  const rows = state?.gridHeight ?? 37;
+  const snakes: MpSnake[] = state?.snakes ?? [];
+  const foods = state?.foods ?? [];
+  const status = state?.status ?? 'lobby';
+  const canStart = isHost && snakes.length >= 2 && status === 'lobby';
 
   return (
     <Shell>
       <LevelBar>
-        <LevelLabel>Level {gameLevel(score)}</LevelLabel>
+        <LevelLabel>Versus {snakes.length}/4</LevelLabel>
         <MuteButton
           type="button"
           onClick={onToggleMute}
@@ -294,28 +314,30 @@ export function SnakeBoard({
       </LevelBar>
 
       <BoardFrame>
-        <Board $cols={gridWidth} $rows={gridHeight}>
-          {!showTitle
-            ? snake.map((segment, index) => (
-                <Cell
-                  key={segmentKey(segment, index)}
-                  $x={segment.x}
-                  $y={segment.y}
-                  $cols={gridWidth}
-                  $rows={gridHeight}
-                >
-                  <SnakeBlock />
-                </Cell>
-              ))
+        <Board $cols={cols} $rows={rows}>
+          {status !== 'lobby'
+            ? snakes.flatMap((snake) =>
+                snake.body.map((segment, index) => (
+                  <Cell
+                    key={segmentKey(snake.id, segment, index)}
+                    $x={segment.x}
+                    $y={segment.y}
+                    $cols={cols}
+                    $rows={rows}
+                  >
+                    <SnakeBlock $color={snake.color} $dead={!snake.alive} />
+                  </Cell>
+                )),
+              )
             : null}
-          {!showTitle
+          {status !== 'lobby'
             ? foods.map((food, index) => (
                 <Cell
                   key={`food-${food.x}-${food.y}-${index}`}
                   $x={food.x}
                   $y={food.y}
-                  $cols={gridWidth}
-                  $rows={gridHeight}
+                  $cols={cols}
+                  $rows={rows}
                 >
                   <FoodGlyph>
                     <FoodCenter />
@@ -323,84 +345,72 @@ export function SnakeBoard({
                 </Cell>
               ))
             : null}
-          {bait ? (
-            <Cell
-              key={`logo-bait-${bait.x}-${bait.y}`}
-              $x={bait.x}
-              $y={bait.y}
-              $cols={gridWidth}
-              $rows={gridHeight}
-            >
-              <FoodGlyph>
-                <FoodCenter />
-              </FoodGlyph>
-            </Cell>
-          ) : null}
-          {logo.map((cell) => (
-            <Cell
-              key={`logo-${cell.x}-${cell.y}`}
-              $x={cell.x}
-              $y={cell.y}
-              $cols={gridWidth}
-              $rows={gridHeight}
-            >
-              <SnakeBlock $logo />
-            </Cell>
-          ))}
 
-          {busy ? (
+          {error ? (
             <Overlay>
-              Loading
+              Offline
+              <OverlayHint>{error}</OverlayHint>
+            </Overlay>
+          ) : null}
+          {!error && !connected ? (
+            <Overlay>
+              Linking
+              <OverlayHint>Joining room…</OverlayHint>
+            </Overlay>
+          ) : null}
+          {!error && connected && status === 'lobby' ? (
+            <Overlay>
+              Waiting
               <OverlayHint>
-                {busy === 'start' ? 'Starting run…' : 'Saving score…'}
+                {snakes.length}/4 · {isHost ? 'Host' : 'Guest'}
               </OverlayHint>
-            </Overlay>
-          ) : null}
-          {!busy && status === 'ready' ? (
-            <ReadyHint>
-              Snake
-              <OverlayHint>Arrows / WASD to play</OverlayHint>
-              {guest ? (
-                <OverlayHint>Guest · ranks only in Front</OverlayHint>
-              ) : null}
-              {onVersus ? (
-                <VersusButton type="button" onClick={onVersus}>
-                  Versus
-                </VersusButton>
-              ) : null}
-            </ReadyHint>
-          ) : null}
-          {!busy && status === 'paused' ? (
-            <Overlay>
-              Paused
-              <OverlayHint>Space resume · M mute</OverlayHint>
-            </Overlay>
-          ) : null}
-          {!busy && status === 'gameover' ? (
-            <Overlay>
-              Game over
-              <OverlayHint>Score {score}</OverlayHint>
-              {lastSubmit ? (
+              <OverlayHint>{roomUrl.replace(/^https?:\/\//, '')}</OverlayHint>
+              <Action type="button" onClick={onCopyLink}>
+                {copied ? 'Copied' : 'Copy link'}
+              </Action>
+              {canStart ? (
+                <Action type="button" onClick={onStart}>
+                  Start
+                </Action>
+              ) : (
                 <OverlayHint>
-                  Ranked {lastSubmit.score} · #{lastSubmit.rank}
+                  {isHost ? 'Need 2 players to start' : 'Wait for host'}
                 </OverlayHint>
+              )}
+            </Overlay>
+          ) : null}
+          {!error && status === 'over' ? (
+            <Overlay>
+              {state?.hostLeft ? 'Host left' : state ? winnerName(state) : 'Over'}
+              {isHost && snakes.length >= 2 ? (
+                <Action type="button" onClick={onStart}>
+                  Rematch
+                </Action>
               ) : null}
-              <OverlayHint>Arrow or Enter to retry</OverlayHint>
             </Overlay>
           ) : null}
         </Board>
       </BoardFrame>
 
       <Dock>
-        <Hud>
-          <span>{score}</span>
-          <HudName>{playerLabel}</HudName>
-        </Hud>
-        <Leaderboard
-          board={board}
-          playing={status === 'playing'}
-          onPause={onPause}
-        />
+        <Roster>
+          {snakes.map((snake) => (
+            <RosterRow key={snake.id}>
+              <RosterName>
+                <Swatch $color={snake.color} />
+                <Name>
+                  {snake.name}
+                  {snake.id === youId ? ' · you' : ''}
+                  {snake.alive || status === 'lobby' ? '' : ' · out'}
+                </Name>
+              </RosterName>
+              <span>{status === 'lobby' ? '' : snake.score}</span>
+            </RosterRow>
+          ))}
+        </Roster>
+        <Ghost type="button" onClick={onSolo}>
+          Back to solo
+        </Ghost>
       </Dock>
     </Shell>
   );
