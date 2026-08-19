@@ -37,6 +37,19 @@ const MUSIC_LOOP: Note[] = [
   {freq: 523.25, beats: 4},
 ];
 
+const FANFARE_LOOP: Note[] = [
+  {freq: 523.25, beats: 1},
+  {freq: 659.25, beats: 1},
+  {freq: 783.99, beats: 1},
+  {freq: 1046.5, beats: 2},
+  {freq: 783.99, beats: 1},
+  {freq: 1046.5, beats: 3},
+  {freq: 659.25, beats: 1},
+  {freq: 783.99, beats: 1},
+  {freq: 987.77, beats: 1},
+  {freq: 1318.5, beats: 4},
+];
+
 function loadMuted(): boolean {
   try {
     return localStorage.getItem(MUTE_KEY) === '1';
@@ -61,6 +74,9 @@ export class SnakeAudio {
   private musicTimer: number | null = null;
   private musicIndex = 0;
   private musicPlaying = false;
+  private fanfareTimer: number | null = null;
+  private fanfareIndex = 0;
+  private fanfarePlaying = false;
   private muted = loadMuted();
 
   isMuted(): boolean {
@@ -72,6 +88,7 @@ export class SnakeAudio {
     saveMuted(muted);
     if (muted) {
       this.stopMusic();
+      this.stopFanfare();
     }
     if (this.master) {
       this.master.gain.value = muted ? 0 : 1;
@@ -93,6 +110,7 @@ export class SnakeAudio {
   syncStatus(status: GameStatus): void {
     if (this.muted) {
       this.stopMusic();
+      this.stopFanfare();
       return;
     }
     if (status === 'playing') {
@@ -141,6 +159,24 @@ export class SnakeAudio {
       this.blip(523.25, 0.06, 'square', 0.06);
       this.blip(659.25, 0.08, 'square', 0.06, 0.05);
     });
+  }
+
+  playFanfare(): void {
+    if (this.muted) {
+      return;
+    }
+    this.stopMusic();
+    void this.unlock().then(() => {
+      this.startFanfare();
+    });
+  }
+
+  stopFanfare(): void {
+    this.fanfarePlaying = false;
+    if (this.fanfareTimer !== null) {
+      window.clearTimeout(this.fanfareTimer);
+      this.fanfareTimer = null;
+    }
   }
 
   private ensureContext(): AudioContext {
@@ -200,6 +236,33 @@ export class SnakeAudio {
 
     this.musicTimer = window.setTimeout(() => {
       this.scheduleNextNote();
+    }, note.beats * beatMs);
+  }
+
+  private startFanfare(): void {
+    if (this.fanfarePlaying || this.muted) {
+      return;
+    }
+    this.ensureContext();
+    this.fanfarePlaying = true;
+    this.fanfareIndex = 0;
+    this.scheduleNextFanfareNote();
+  }
+
+  private scheduleNextFanfareNote(): void {
+    if (!this.fanfarePlaying || !this.ctx || !this.musicGain) {
+      return;
+    }
+
+    const note = FANFARE_LOOP[this.fanfareIndex % FANFARE_LOOP.length];
+    this.fanfareIndex += 1;
+
+    const beatMs = 150;
+    const duration = (note.beats * beatMs) / 1000;
+    this.tone(note.freq, duration * 0.88, 'square', this.musicGain, 1.1);
+
+    this.fanfareTimer = window.setTimeout(() => {
+      this.scheduleNextFanfareNote();
     }, note.beats * beatMs);
   }
 
