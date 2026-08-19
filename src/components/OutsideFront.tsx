@@ -8,7 +8,7 @@ const LCD = {
   border: '#243214',
 };
 
-const SNAKE: Array<{x: number; y: number}> = [
+const SNAKE: {x: number; y: number}[] = [
   {x: 4, y: 8},
   {x: 5, y: 8},
   {x: 6, y: 8},

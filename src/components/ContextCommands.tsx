@@ -170,7 +170,7 @@ export function ContextCommands() {
         <>
           <ResultHeader>
             <SectionLabel>Last result · {lastResult.name}()</SectionLabel>
-            <Button type="secondary" isRounded={false} onClick={() => setLastResult(null)}>
+            <Button type="secondary" isRounded={false} onClick={() => { setLastResult(null); }}>
               Clear
             </Button>
           </ResultHeader>

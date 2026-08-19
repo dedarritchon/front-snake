@@ -53,7 +53,6 @@ function v(melody: number, bass: number, beats: number, harmony = 0): ThemeNote 
   return {melody, harmony, bass, beats};
 }
 
-export const THEME_STORAGE_KEY = 'front-snake-theme';
 export const DEFAULT_THEME_ID = 'green-lcd';
 
 export const GAME_THEMES: GameTheme[] = [
@@ -374,24 +373,4 @@ export function getTheme(id: string | null | undefined): GameTheme {
     GAME_THEMES.find((theme) => theme.id === DEFAULT_THEME_ID) ??
     GAME_THEMES[0]
   );
-}
-
-export function loadCommittedThemeId(): string {
-  try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored && GAME_THEMES.some((theme) => theme.id === stored)) {
-      return stored;
-    }
-  } catch {
-    // ignore
-  }
-  return DEFAULT_THEME_ID;
-}
-
-export function saveCommittedThemeId(id: string): void {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, id);
-  } catch {
-    // ignore
-  }
 }

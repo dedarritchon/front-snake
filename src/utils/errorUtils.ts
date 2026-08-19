@@ -40,9 +40,9 @@ function isFrontNoCredentialsErrorBody(error: unknown): boolean {
   if (error === null || typeof error !== 'object') return false;
   const body = error as Record<string, unknown>;
   return (
-    body['name'] === 'FrontError' &&
-    body['status'] === 'not_found' &&
-    body['reason'] === 'No credentials exist for server'
+    body.name === 'FrontError' &&
+    body.status === 'not_found' &&
+    body.reason === 'No credentials exist for server'
   );
 }
 

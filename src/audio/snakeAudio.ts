@@ -1,12 +1,9 @@
 import type {Direction, GameStatus} from '../game/types';
 import {
-  getTheme,
-  loadCommittedThemeId,
-  saveCommittedThemeId,
+  DEFAULT_THEME_ID,
   type GameTheme,
+  getTheme,
 } from './themes';
-
-const MUTE_KEY = 'front-snake-muted';
 
 interface Note {
   freq: number;
@@ -29,22 +26,6 @@ const FANFARE_LOOP: Note[] = [
 const MUSIC_VOL_IDLE = 0.07;
 const MUSIC_VOL_PLAYING = 0.042;
 
-function loadMuted(): boolean {
-  try {
-    return localStorage.getItem(MUTE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function saveMuted(muted: boolean): void {
-  try {
-    localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
-  } catch {
-    // ignore
-  }
-}
-
 export class SnakeAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -56,10 +37,10 @@ export class SnakeAudio {
   private fanfareTimer: number | null = null;
   private fanfareIndex = 0;
   private fanfarePlaying = false;
-  private muted = loadMuted();
+  private muted = false;
   private listeningForGesture = false;
   private selectorMode = false;
-  private committedThemeId = loadCommittedThemeId();
+  private committedThemeId = DEFAULT_THEME_ID;
   private previewThemeId: string | null = null;
 
   committedId(): string {
@@ -100,7 +81,6 @@ export class SnakeAudio {
   commitTheme(id: string): void {
     this.committedThemeId = id;
     this.previewThemeId = id;
-    saveCommittedThemeId(id);
   }
 
   isMuted(): boolean {
@@ -109,7 +89,6 @@ export class SnakeAudio {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
-    saveMuted(muted);
     if (muted) {
       this.stopMusic();
       this.haltFanfare();

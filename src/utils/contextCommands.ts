@@ -23,7 +23,7 @@ export interface ContextCommandDemo {
 type ContextFn = (...args: never[]) => Promise<unknown>;
 
 function asRecord(context: WebViewContext): Record<string, unknown> {
-  return context as unknown as Record<string, unknown>;
+  return context;
 }
 
 function getFn(context: WebViewContext, name: string): ContextFn {
@@ -48,7 +48,7 @@ function getConversationId(context: WebViewContext): ApplicationConversationId |
   }
 }
 
-function getConversationLinks(context: WebViewContext): ReadonlyArray<{id: ApplicationTopicId}> {
+function getConversationLinks(context: WebViewContext): readonly {id: ApplicationTopicId}[] {
   switch (context.type) {
     case 'singleConversation':
     case 'singleConversationPopover':
@@ -89,10 +89,10 @@ async function firstMessageWithAttachment(context: WebViewContext): Promise<{
 }> {
   const listMessages = getFn(context, 'listMessages');
   const list = (await listMessages()) as {
-    results: ReadonlyArray<{
+    results: readonly {
       id: ApplicationMessageId;
-      content?: {attachments?: ReadonlyArray<{id: ApplicationAttachmentId}>};
-    }>;
+      content?: {attachments?: readonly {id: ApplicationAttachmentId}[]};
+    }[];
   };
 
   for (const message of list.results ?? []) {
@@ -374,12 +374,12 @@ export const CONTEXT_COMMAND_DEMOS: Record<string, ContextCommandDemo> = {
   },
 };
 
-export function listAvailableContextCommands(context: WebViewContext): Array<{
+export function listAvailableContextCommands(context: WebViewContext): {
   name: string;
   arity: number;
   hasDemo: boolean;
   hint: string;
-}> {
+}[] {
   const arities = context.functionArities ?? {};
   return Object.keys(arities)
     .sort((a, b) => a.localeCompare(b))

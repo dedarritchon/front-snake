@@ -6,7 +6,6 @@ import {
   createFreshState,
   createInitialState,
   queueDirection,
-  saveGameState,
   tick,
   tickMsForScore,
   togglePause,
@@ -40,10 +39,6 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
     setRankedActive(false);
     setState(createInitialState(levelId));
   }, [levelId]);
-
-  useEffect(() => {
-    saveGameState(state);
-  }, [state]);
 
   useEffect(() => {
     snakeAudio.syncStatus(state.status);

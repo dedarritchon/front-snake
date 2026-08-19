@@ -106,7 +106,7 @@ export function ErrorBannerProvider({children}: {children: ReactNode}) {
               <Card key={item.id} role="alert">
                 <Accent aria-hidden />
                 <Message>{item.message}</Message>
-                <Dismiss type="button" aria-label="Dismiss error" onClick={() => dismissError(item.id)}>
+                <Dismiss type="button" aria-label="Dismiss error" onClick={() => { dismissError(item.id); }}>
                   ×
                 </Dismiss>
               </Card>

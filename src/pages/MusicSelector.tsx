@@ -221,7 +221,7 @@ export function MusicSelector() {
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
   }, [cursor, playIndex, saveCursor]);
 
   const selected = GAME_THEMES[cursor];
@@ -244,7 +244,7 @@ export function MusicSelector() {
                 $active={active}
                 $saved={saved}
                 $cursor={cursor === index}
-                onClick={() => playIndex(index)}
+                onClick={() => { playIndex(index); }}
               >
                 <Index>{cursor === index ? '>' : pad(index)}</Index>
                 <Copy>

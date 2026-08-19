@@ -1,7 +1,7 @@
 import {styled} from 'styled-components';
 
-import {frontLogoBait, frontLogoCells} from '../game/logo';
 import {gameLevel} from '../game/engine';
+import {frontLogoBait, frontLogoCells} from '../game/logo';
 import type {GameState, Point} from '../game/types';
 import type {
   LeaderboardBoard,
