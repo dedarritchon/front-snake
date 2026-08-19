@@ -15,6 +15,7 @@ export interface PresenceMeta {
   playerId: string;
   name: string;
   host: boolean;
+  ready: boolean;
   joinedAt: number;
 }
 
@@ -37,6 +38,7 @@ function parseMeta(value: unknown): PresenceMeta | null {
     playerId: row.playerId,
     name: row.name,
     host: row.host === true,
+    ready: row.ready === true,
     joinedAt: typeof row.joinedAt === 'number' ? row.joinedAt : 0,
   };
 }
@@ -58,13 +60,14 @@ export function rosterFromPresence(
     name: meta.name,
     color: MP_COLORS[index] ?? MP_COLORS[0],
     host: meta.host,
+    ready: meta.ready,
   }));
 }
 
 export class MultiplayerRoom {
   private channel: RealtimeChannel | null = null;
   private readonly roomId: string;
-  private readonly self: PresenceMeta;
+  private self: PresenceMeta;
   private readonly handlers: RoomHandlers;
 
   constructor(roomId: string, self: PresenceMeta, handlers: RoomHandlers) {
@@ -125,6 +128,11 @@ export class MultiplayerRoom {
 
     this.channel = channel;
     await channel.track(this.self);
+  }
+
+  async setReady(ready: boolean): Promise<void> {
+    this.self = {...this.self, ready};
+    await this.channel?.track(this.self);
   }
 
   sendInput(dir: Direction): void {

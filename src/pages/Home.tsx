@@ -1,10 +1,15 @@
 import type {WebViewContext} from '@frontapp/plugin-sdk/dist/webViewSdkTypes';
-import {useNavigate} from 'react-router';
+import {useState} from 'react';
 import {styled} from 'styled-components';
 
 import {SnakeBoard} from '../components/SnakeBoard';
+import {VersusSession} from '../components/VersusSession';
 import {useFrontContext} from '../context/FrontContext';
-import {createRoomId} from '../game/multiplayerEngine';
+import {
+  createRoomId,
+  isRoomId,
+  normalizeRoomId,
+} from '../game/multiplayerEngine';
 import {LOBBY_LEVEL_ID} from '../game/snakeEngine';
 import {useLeaderboard} from '../hooks/useLeaderboard';
 import {useSnakeGame} from '../hooks/useSnakeGame';
@@ -53,8 +58,25 @@ function getConversationMeta(context: WebViewContext): {
   };
 }
 
-export function Home() {
-  const navigate = useNavigate();
+type VersusFlow =
+  | {kind: 'setup'}
+  | {kind: 'room'; roomId: string; host: boolean};
+
+function RankedHome({
+  versusSetup,
+  joinError,
+  onVersus,
+  onCreateRoom,
+  onJoinRoom,
+  onCancelVersus,
+}: {
+  versusSetup: boolean;
+  joinError: string | null;
+  onVersus: () => void;
+  onCreateRoom: () => void;
+  onJoinRoom: (roomId: string) => void;
+  onCancelVersus: () => void;
+}) {
   const {context, guest} = useFrontContext();
   const {levelId} = context
     ? getConversationMeta(context)
@@ -63,7 +85,7 @@ export function Home() {
   const {state, muted, toggleMute, pause} = useSnakeGame(levelId, {
     start,
     submit,
-    locked: busy !== null,
+    locked: busy !== null || versusSetup,
   });
   const label = guest
     ? 'Guest'
@@ -79,12 +101,61 @@ export function Home() {
         board={board}
         lastSubmit={lastSubmit}
         busy={busy}
+        versusSetup={versusSetup}
+        joinError={joinError}
         onToggleMute={toggleMute}
         onPause={pause}
-        onVersus={() => {
-          void navigate(`/room/${createRoomId()}`, {state: {host: true}});
-        }}
+        onVersus={onVersus}
+        onCreateRoom={onCreateRoom}
+        onJoinRoom={onJoinRoom}
+        onCancelVersus={onCancelVersus}
       />
     </Page>
+  );
+}
+
+export function Home() {
+  const [versus, setVersus] = useState<VersusFlow | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  if (versus?.kind === 'room') {
+    return (
+      <VersusSession
+        roomId={versus.roomId}
+        claimHost={versus.host}
+        onSolo={() => {
+          setVersus(null);
+          setJoinError(null);
+        }}
+      />
+    );
+  }
+
+  return (
+    <RankedHome
+      versusSetup={versus?.kind === 'setup'}
+      joinError={joinError}
+      onVersus={() => {
+        setJoinError(null);
+        setVersus({kind: 'setup'});
+      }}
+      onCreateRoom={() => {
+        setJoinError(null);
+        setVersus({kind: 'room', roomId: createRoomId(), host: true});
+      }}
+      onJoinRoom={(raw) => {
+        const roomId = normalizeRoomId(raw);
+        if (!isRoomId(roomId)) {
+          setJoinError('Enter a room id');
+          return;
+        }
+        setJoinError(null);
+        setVersus({kind: 'room', roomId, host: false});
+      }}
+      onCancelVersus={() => {
+        setVersus(null);
+        setJoinError(null);
+      }}
+    />
   );
 }

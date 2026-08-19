@@ -2,22 +2,27 @@ import {describe, expect, it} from 'vitest';
 
 import {SCORE_PER_FOOD as SOLO_SCORE} from './engine';
 import {
+  allReadyToStart,
   createMpLobby,
   createPlayerId,
   createRoomId,
+  isRoomId,
   killPlayer,
   markHostLeft,
+  MP_GRID_HEIGHT,
+  MP_GRID_WIDTH,
   MP_MAX_PLAYERS,
   type MpPlayer,
+  normalizeRoomId,
   queueMpInput,
   startMp,
   tickMp,
 } from './multiplayerEngine';
 
 const PLAYERS: MpPlayer[] = [
-  {id: 'a', name: 'A', color: '#111', host: true},
-  {id: 'b', name: 'B', color: '#222', host: false},
-  {id: 'c', name: 'C', color: '#333', host: false},
+  {id: 'a', name: 'A', color: '#111', host: true, ready: false},
+  {id: 'b', name: 'B', color: '#222', host: false, ready: false},
+  {id: 'c', name: 'C', color: '#333', host: false, ready: false},
 ];
 
 describe('multiplayerEngine', () => {
@@ -29,8 +34,8 @@ describe('multiplayerEngine', () => {
   it('caps the lobby at four snakes', () => {
     const extra: MpPlayer[] = [
       ...PLAYERS,
-      {id: 'd', name: 'D', color: '#444', host: false},
-      {id: 'e', name: 'E', color: '#555', host: false},
+      {id: 'd', name: 'D', color: '#444', host: false, ready: false},
+      {id: 'e', name: 'E', color: '#555', host: false, ready: false},
     ];
     expect(createMpLobby(extra, 1).snakes).toHaveLength(MP_MAX_PLAYERS);
   });
@@ -40,8 +45,10 @@ describe('multiplayerEngine', () => {
     expect(playing.status).toBe('playing');
     expect(playing.snakes).toHaveLength(2);
     expect(playing.foods.length).toBeGreaterThan(0);
+    expect(playing.gridWidth).toBe(MP_GRID_WIDTH);
+    expect(playing.gridHeight).toBe(MP_GRID_HEIGHT);
     expect(playing.snakes[0].body[0]).toEqual({x: 2, y: 3});
-    expect(playing.snakes[1].body[0]).toEqual({x: 16, y: 3});
+    expect(playing.snakes[1].body[0]).toEqual({x: MP_GRID_WIDTH - 3, y: 3});
   });
 
   it('ignores a reverse input and lobby input', () => {
@@ -191,5 +198,19 @@ describe('multiplayerEngine', () => {
   it('mints room and player ids', () => {
     expect(createRoomId()).toMatch(/^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/);
     expect(createPlayerId()).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it('normalizes pasted room ids', () => {
+    expect(normalizeRoomId('  AB-CD 23 ')).toBe('abcd23');
+    expect(isRoomId('abcd')).toBe(true);
+    expect(isRoomId('abc')).toBe(false);
+  });
+
+  it('starts only when every seated player is ready', () => {
+    expect(allReadyToStart(PLAYERS)).toBe(false);
+    expect(
+      allReadyToStart(PLAYERS.map((player) => ({...player, ready: true}))),
+    ).toBe(true);
+    expect(allReadyToStart([{...PLAYERS[0], ready: true}])).toBe(false);
   });
 });

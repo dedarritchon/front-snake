@@ -3,6 +3,7 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {snakeAudio} from '../audio/snakeAudio';
 import {isDirection, randomSeed} from '../game/engine';
 import {
+  allReadyToStart,
   createMpLobby,
   createPlayerId,
   killPlayer,
@@ -26,22 +27,47 @@ export function useMultiplayerRoom(
   const [state, setState] = useState<MpState | null>(null);
   const [players, setPlayers] = useState<MpPlayer[]>([]);
   const [isHost, setIsHost] = useState(claimHost);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
 
   const stateRef = useRef(state);
   const isHostRef = useRef(isHost);
   const playersRef = useRef(players);
+  const readyRef = useRef(ready);
   const roomRef = useRef<MultiplayerRoom | null>(null);
   stateRef.current = state;
   isHostRef.current = isHost;
   playersRef.current = players;
+  readyRef.current = ready;
 
   const publish = useCallback((next: MpState) => {
     stateRef.current = next;
     setState(next);
     roomRef.current?.sendState(next);
   }, []);
+
+  const clearReady = useCallback(() => {
+    if (!readyRef.current) {
+      return;
+    }
+    readyRef.current = false;
+    setReady(false);
+    void roomRef.current?.setReady(false);
+  }, []);
+
+  const beginMatch = useCallback(() => {
+    if (!isHostRef.current || !allReadyToStart(playersRef.current)) {
+      return;
+    }
+    const seed = randomSeed();
+    snakeAudio.playStart();
+    roomRef.current?.sendStart(seed);
+    publish(startMp(createMpLobby(playersRef.current, seed), seed));
+    clearReady();
+  }, [clearReady, publish]);
+  const beginMatchRef = useRef(beginMatch);
+  beginMatchRef.current = beginMatch;
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +77,7 @@ export function useMultiplayerRoom(
         playerId: playerIdRef.current,
         name: playerName,
         host: claimHost,
+        ready: false,
         joinedAt: Date.now(),
       },
       {
@@ -72,9 +99,7 @@ export function useMultiplayerRoom(
               publish(
                 createMpLobby(nextPlayers, current?.seed ?? randomSeed()),
               );
-              return;
-            }
-            if (current.status === 'playing') {
+            } else if (current.status === 'playing') {
               let next = current;
               for (const snake of current.snakes) {
                 if (
@@ -86,6 +111,12 @@ export function useMultiplayerRoom(
               }
               if (next !== current) {
                 publish(next);
+              }
+            }
+            if (allReadyToStart(nextPlayers)) {
+              const latest = stateRef.current;
+              if (!latest || latest.status === 'lobby' || latest.status === 'over') {
+                beginMatchRef.current();
               }
             }
             return;
@@ -107,6 +138,9 @@ export function useMultiplayerRoom(
           }
           stateRef.current = next;
           setState(next);
+          if (next.status === 'playing') {
+            clearReady();
+          }
         },
         onInput: (id, direction) => {
           if (!isHostRef.current) {
@@ -123,6 +157,7 @@ export function useMultiplayerRoom(
         onStart: () => {
           if (!isHostRef.current) {
             snakeAudio.playStart();
+            clearReady();
           }
         },
       },
@@ -146,7 +181,7 @@ export function useMultiplayerRoom(
       roomRef.current = null;
       void room.disconnect();
     };
-  }, [claimHost, playerName, publish, roomId]);
+  }, [claimHost, clearReady, playerName, publish, roomId]);
 
   useEffect(() => {
     if (!isHost || state?.status !== 'playing') {
@@ -202,30 +237,33 @@ export function useMultiplayerRoom(
       setState(next);
       return;
     }
+    if (stateRef.current?.status !== 'playing') {
+      return;
+    }
     snakeAudio.playMove(direction);
     roomRef.current?.sendInput(direction);
   }, []);
 
-  const startMatch = useCallback(() => {
-    if (!isHostRef.current || playersRef.current.length < 2) {
+  const toggleReady = useCallback(() => {
+    const status = stateRef.current?.status ?? 'lobby';
+    if (status === 'playing') {
       return;
     }
-    const seed = randomSeed();
-    const current =
-      stateRef.current ?? createMpLobby(playersRef.current, seed);
-    snakeAudio.playStart();
-    roomRef.current?.sendStart(seed);
-    publish(startMp(current, seed));
-  }, [publish]);
+    const next = !readyRef.current;
+    readyRef.current = next;
+    setReady(next);
+    void roomRef.current?.setReady(next);
+  }, []);
 
   return {
     playerId: playerIdRef.current,
     state,
     players,
     isHost,
+    ready,
     error,
     connected,
     sendDirection,
-    startMatch,
+    toggleReady,
   };
 }

@@ -246,6 +246,45 @@ const VersusButton = styled.button`
   padding: 8px 10px;
 `;
 
+const GhostButton = styled.button`
+  margin-top: 4px;
+  border: 2px solid ${LCD.border};
+  background: transparent;
+  color: ${LCD.pixel};
+  font-family: inherit;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+`;
+
+const RoomInput = styled.input`
+  width: min(100%, 180px);
+  border: 2px solid ${LCD.border};
+  background: transparent;
+  color: ${LCD.pixel};
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 8px 6px;
+  outline: none;
+
+  &::placeholder {
+    color: ${LCD.pixel};
+    opacity: 0.45;
+    text-transform: uppercase;
+  }
+`;
+
+const JoinForm = styled.form`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+`;
+
 interface SnakeBoardProps {
   state: GameState;
   playerLabel: string;
@@ -257,6 +296,11 @@ interface SnakeBoardProps {
   onToggleMute: () => void;
   onPause: () => void;
   onVersus?: () => void;
+  versusSetup?: boolean;
+  joinError?: string | null;
+  onCreateRoom?: () => void;
+  onJoinRoom?: (roomId: string) => void;
+  onCancelVersus?: () => void;
 }
 
 function segmentKey(point: Point, index: number): string {
@@ -274,6 +318,11 @@ export function SnakeBoard({
   onToggleMute,
   onPause,
   onVersus,
+  versusSetup,
+  joinError,
+  onCreateRoom,
+  onJoinRoom,
+  onCancelVersus,
 }: SnakeBoardProps) {
   const {snake, foods, gridWidth, gridHeight, score, status} = state;
   const showTitle = !busy && status === 'ready';
@@ -356,7 +405,39 @@ export function SnakeBoard({
               </OverlayHint>
             </Overlay>
           ) : null}
-          {!busy && status === 'ready' ? (
+          {!busy && versusSetup ? (
+            <Overlay>
+              Multiplayer
+              <OverlayHint>Create a room or enter a room id</OverlayHint>
+              <VersusButton type="button" onClick={onCreateRoom}>
+                Create room
+              </VersusButton>
+              <JoinForm
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const field = event.currentTarget.elements.namedItem('roomId');
+                  const value =
+                    field instanceof HTMLInputElement ? field.value : '';
+                  onJoinRoom?.(value);
+                }}
+              >
+                <RoomInput
+                  name="roomId"
+                  aria-label="Room id"
+                  placeholder="Room id"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <VersusButton type="submit">Enter</VersusButton>
+              </JoinForm>
+              {joinError ? <OverlayHint>{joinError}</OverlayHint> : null}
+              <GhostButton type="button" onClick={onCancelVersus}>
+                Back
+              </GhostButton>
+            </Overlay>
+          ) : null}
+          {!busy && !versusSetup && status === 'ready' ? (
             <ReadyHint>
               Snake
               <OverlayHint>Arrows / WASD to play</OverlayHint>
@@ -365,7 +446,7 @@ export function SnakeBoard({
               ) : null}
               {onVersus ? (
                 <VersusButton type="button" onClick={onVersus}>
-                  Versus
+                  Multiplayer
                 </VersusButton>
               ) : null}
             </ReadyHint>

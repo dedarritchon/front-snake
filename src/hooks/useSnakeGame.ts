@@ -152,6 +152,13 @@ export function useSnakeGame(levelId: string, ranked?: RankedHandlers) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+      ) {
+        return;
+      }
       if (rankedRef.current?.locked && event.key.toLowerCase() !== 'm') {
         event.preventDefault();
         return;

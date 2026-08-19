@@ -1,6 +1,12 @@
 import {styled} from 'styled-components';
 
-import type {MpSnake, MpState} from '../game/multiplayerEngine';
+import {
+  MP_GRID_HEIGHT,
+  MP_GRID_WIDTH,
+  type MpPlayer,
+  type MpSnake,
+  type MpState,
+} from '../game/multiplayerEngine';
 import type {Point} from '../game/types';
 
 const LCD = {
@@ -255,6 +261,11 @@ const Ghost = styled.button`
   padding: 8px;
 `;
 
+const RoomCode = styled.span`
+  font-size: 12px;
+  letter-spacing: 0.18em;
+`;
+
 function segmentKey(snakeId: string, point: Point, index: number): string {
   return `${snakeId}-${point.x}-${point.y}-${index}`;
 }
@@ -268,42 +279,55 @@ function winnerName(state: MpState): string {
 
 export function VersusBoard({
   state,
+  players,
   youId,
   isHost,
+  ready,
   muted,
   error,
   connected,
   copied,
-  roomUrl,
+  roomId,
   onToggleMute,
-  onCopyLink,
-  onStart,
+  onCopyId,
+  onReady,
   onSolo,
 }: {
   state: MpState | null;
+  players: MpPlayer[];
   youId: string;
   isHost: boolean;
+  ready: boolean;
   muted: boolean;
   error: string | null;
   connected: boolean;
   copied: boolean;
-  roomUrl: string;
+  roomId: string;
   onToggleMute: () => void;
-  onCopyLink: () => void;
-  onStart: () => void;
+  onCopyId: () => void;
+  onReady: () => void;
   onSolo: () => void;
 }) {
-  const cols = state?.gridWidth ?? 19;
-  const rows = state?.gridHeight ?? 37;
+  const cols = state?.gridWidth ?? MP_GRID_WIDTH;
+  const rows = state?.gridHeight ?? MP_GRID_HEIGHT;
   const snakes: MpSnake[] = state?.snakes ?? [];
   const foods = state?.foods ?? [];
   const status = state?.status ?? 'lobby';
-  const canStart = isHost && snakes.length >= 2 && status === 'lobby';
+  const seated = players.length > 0 ? players : snakes.map((snake, index) => ({
+    id: snake.id,
+    name: snake.name,
+    color: snake.color,
+    host: index === 0,
+    ready: false,
+  }));
+  const readyCount = seated.filter((player) => player.ready).length;
+  const waitingOnReady = status !== 'playing';
+  const canReady = connected && !error && waitingOnReady;
 
   return (
     <Shell>
       <LevelBar>
-        <LevelLabel>Versus {snakes.length}/4</LevelLabel>
+        <LevelLabel>Versus {seated.length}/4</LevelLabel>
         <MuteButton
           type="button"
           onClick={onToggleMute}
@@ -360,33 +384,45 @@ export function VersusBoard({
           ) : null}
           {!error && connected && status === 'lobby' ? (
             <Overlay>
-              Waiting
+              Room
+              <RoomCode>{roomId}</RoomCode>
               <OverlayHint>
-                {snakes.length}/4 · {isHost ? 'Host' : 'Guest'}
+                {seated.length}/4 · {readyCount} ready · {isHost ? 'Host' : 'Guest'}
               </OverlayHint>
-              <OverlayHint>{roomUrl.replace(/^https?:\/\//, '')}</OverlayHint>
-              <Action type="button" onClick={onCopyLink}>
-                {copied ? 'Copied' : 'Copy link'}
+              <Action type="button" onClick={onCopyId}>
+                {copied ? 'Copied' : 'Copy room id'}
               </Action>
-              {canStart ? (
-                <Action type="button" onClick={onStart}>
-                  Start
+              {canReady ? (
+                <Action type="button" onClick={onReady}>
+                  {ready ? 'Unready' : 'Ready'}
                 </Action>
-              ) : (
-                <OverlayHint>
-                  {isHost ? 'Need 2 players to start' : 'Wait for host'}
-                </OverlayHint>
-              )}
+              ) : null}
+              <OverlayHint>
+                {seated.length < 2
+                  ? 'Need 2 players'
+                  : readyCount < seated.length
+                    ? 'Everyone must ready'
+                    : 'Starting…'}
+              </OverlayHint>
             </Overlay>
           ) : null}
           {!error && status === 'over' ? (
             <Overlay>
               {state?.hostLeft ? 'Host left' : state ? winnerName(state) : 'Over'}
-              {isHost && snakes.length >= 2 ? (
-                <Action type="button" onClick={onStart}>
-                  Rematch
-                </Action>
-              ) : null}
+              {state?.hostLeft ? null : (
+                <>
+                  <OverlayHint>
+                    {seated.length < 2
+                      ? 'Need 2 players'
+                      : `${readyCount}/${seated.length} ready`}
+                  </OverlayHint>
+                  {canReady ? (
+                    <Action type="button" onClick={onReady}>
+                      {ready ? 'Unready' : 'Ready'}
+                    </Action>
+                  ) : null}
+                </>
+              )}
             </Overlay>
           ) : null}
         </Board>
@@ -394,19 +430,35 @@ export function VersusBoard({
 
       <Dock>
         <Roster>
-          {snakes.map((snake) => (
-            <RosterRow key={snake.id}>
-              <RosterName>
-                <Swatch $color={snake.color} />
-                <Name>
-                  {snake.name}
-                  {snake.id === youId ? ' · you' : ''}
-                  {snake.alive || status === 'lobby' ? '' : ' · out'}
-                </Name>
-              </RosterName>
-              <span>{status === 'lobby' ? '' : snake.score}</span>
-            </RosterRow>
-          ))}
+          {seated.map((player) => {
+            const snake = snakes.find((row) => row.id === player.id);
+            return (
+              <RosterRow key={player.id}>
+                <RosterName>
+                  <Swatch $color={player.color} />
+                  <Name>
+                    {player.name}
+                    {player.id === youId ? ' · you' : ''}
+                    {player.host ? ' · host' : ''}
+                    {status === 'playing' || status === 'over'
+                      ? snake?.alive
+                        ? ''
+                        : ' · out'
+                      : player.ready
+                        ? ' · ready'
+                        : ''}
+                  </Name>
+                </RosterName>
+                <span>
+                  {status === 'lobby'
+                    ? player.ready
+                      ? 'Ready'
+                      : 'Wait'
+                    : (snake?.score ?? '')}
+                </span>
+              </RosterRow>
+            );
+          })}
         </Roster>
         <Ghost type="button" onClick={onSolo}>
           Back to solo

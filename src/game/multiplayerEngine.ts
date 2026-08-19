@@ -2,17 +2,16 @@ import {
   baitCountForScore,
   BASE_TICK_MS,
   createRng,
-  GRID_HEIGHT,
-  GRID_WIDTH,
   type Rng,
   SCORE_PER_FOOD,
-  spawnFoods,
 } from './engine';
 import type {Direction, Point} from './types';
 import {DIRECTION_DELTA, OPPOSITE} from './types';
 
 export const MP_MAX_PLAYERS = 4;
 export const MP_TICK_MS = BASE_TICK_MS;
+export const MP_GRID_WIDTH = 29;
+export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = ['#2a3816', '#1e4d6b', '#6b2e1e', '#3d2a58'] as const;
 
 export type MpStatus = 'lobby' | 'playing' | 'over';
@@ -22,6 +21,7 @@ export interface MpPlayer {
   name: string;
   color: string;
   host: boolean;
+  ready: boolean;
 }
 
 export interface MpSnake {
@@ -60,25 +60,25 @@ const SPAWNS: {body: Point[]; direction: Direction}[] = [
   {
     direction: 'left',
     body: [
-      {x: 16, y: 3},
-      {x: 17, y: 3},
-      {x: 18, y: 3},
+      {x: MP_GRID_WIDTH - 3, y: 3},
+      {x: MP_GRID_WIDTH - 2, y: 3},
+      {x: MP_GRID_WIDTH - 1, y: 3},
     ],
   },
   {
     direction: 'right',
     body: [
-      {x: 2, y: 33},
-      {x: 1, y: 33},
-      {x: 0, y: 33},
+      {x: 2, y: MP_GRID_HEIGHT - 4},
+      {x: 1, y: MP_GRID_HEIGHT - 4},
+      {x: 0, y: MP_GRID_HEIGHT - 4},
     ],
   },
   {
     direction: 'left',
     body: [
-      {x: 16, y: 33},
-      {x: 17, y: 33},
-      {x: 18, y: 33},
+      {x: MP_GRID_WIDTH - 3, y: MP_GRID_HEIGHT - 4},
+      {x: MP_GRID_WIDTH - 2, y: MP_GRID_HEIGHT - 4},
+      {x: MP_GRID_WIDTH - 1, y: MP_GRID_HEIGHT - 4},
     ],
   },
 ];
@@ -95,6 +95,43 @@ function allBodies(snakes: MpSnake[]): Point[] {
   return snakes.flatMap((snake) => snake.body);
 }
 
+function isOccupied(point: Point, occupied: Point[]): boolean {
+  return occupied.some((other) => pointsEqual(other, point));
+}
+
+function spawnMpFood(occupied: Point[], rng: Rng): Point | null {
+  const free: Point[] = [];
+  for (let y = 0; y < MP_GRID_HEIGHT; y += 1) {
+    for (let x = 0; x < MP_GRID_WIDTH; x += 1) {
+      const point = {x, y};
+      if (!isOccupied(point, occupied)) {
+        free.push(point);
+      }
+    }
+  }
+  if (free.length === 0) {
+    return null;
+  }
+  return free[rng.nextInt(free.length)] ?? null;
+}
+
+function spawnMpFoods(
+  count: number,
+  occupied: Point[],
+  existing: Point[],
+  rng: Rng,
+): Point[] {
+  const foods = [...existing];
+  while (foods.length < count) {
+    const next = spawnMpFood([...occupied, ...foods], rng);
+    if (!next) {
+      break;
+    }
+    foods.push(next);
+  }
+  return foods;
+}
+
 function refillFoods(
   bodies: Point[],
   foods: Point[],
@@ -105,7 +142,7 @@ function refillFoods(
   if (foods.length >= target) {
     return foods;
   }
-  return spawnFoods(target, bodies, foods, rng);
+  return spawnMpFoods(target, bodies, foods, rng);
 }
 
 export function createRoomId(): string {
@@ -113,6 +150,24 @@ export function createRoomId(): string {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => chars[byte % chars.length]).join('');
+}
+
+const ROOM_ID_CHARS = /^[abcdefghjkmnpqrstuvwxyz23456789]+$/;
+
+export function normalizeRoomId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^abcdefghjkmnpqrstuvwxyz23456789]/g, '')
+    .slice(0, 8);
+}
+
+export function isRoomId(value: string): boolean {
+  return value.length >= 4 && value.length <= 8 && ROOM_ID_CHARS.test(value);
+}
+
+export function allReadyToStart(players: MpPlayer[]): boolean {
+  return players.length >= 2 && players.every((player) => player.ready);
 }
 
 export function createPlayerId(): string {
@@ -148,8 +203,8 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     seed,
     rngState: rng.state(),
     tick: 0,
-    gridWidth: GRID_WIDTH,
-    gridHeight: GRID_HEIGHT,
+    gridWidth: MP_GRID_WIDTH,
+    gridHeight: MP_GRID_HEIGHT,
     hostLeft: false,
   };
 }
@@ -333,9 +388,9 @@ export function tickMp(state: MpState): MpState {
     }
     if (
       head.x < 0 ||
-      head.x >= GRID_WIDTH ||
+      head.x >= MP_GRID_WIDTH ||
       head.y < 0 ||
-      head.y >= GRID_HEIGHT
+      head.y >= MP_GRID_HEIGHT
     ) {
       dying.add(snake.id);
       continue;

@@ -14,8 +14,22 @@ describe('rosterFromPresence', () => {
     });
     expect(roster).toHaveLength(MP_MAX_PLAYERS);
     expect(roster.map((player) => player.id)).toEqual(['a', 'b', 'c', 'z']);
-    expect(roster[0]).toMatchObject({name: 'Ann', host: true, color: MP_COLORS[0]});
+    expect(roster[0]).toMatchObject({
+      name: 'Ann',
+      host: true,
+      ready: false,
+      color: MP_COLORS[0],
+    });
     expect(roster[1].color).toBe(MP_COLORS[1]);
+  });
+
+  it('reads ready from presence', () => {
+    expect(
+      rosterFromPresence({
+        a: [{playerId: 'a', name: 'Ann', host: true, ready: true, joinedAt: 1}],
+        b: [{playerId: 'b', name: 'Bea', host: false, ready: false, joinedAt: 2}],
+      }).map((player) => player.ready),
+    ).toEqual([true, false]);
   });
 
   it('skips malformed presence rows', () => {
@@ -26,7 +40,7 @@ describe('rosterFromPresence', () => {
         z: [{playerId: 'ok', name: 'Ok', host: true, joinedAt: 1}],
       }),
     ).toEqual([
-      {id: 'ok', name: 'Ok', color: MP_COLORS[0], host: true},
+      {id: 'ok', name: 'Ok', color: MP_COLORS[0], host: true, ready: false},
     ]);
   });
 });
