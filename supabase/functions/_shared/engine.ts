@@ -38,8 +38,8 @@ export const DIRECTION_DELTA: Record<Direction, Point> = {
   right: { x: 1, y: 0 },
 };
 
-export const GRID_WIDTH = 17;
-export const GRID_HEIGHT = 27;
+export const GRID_WIDTH = 19;
+export const GRID_HEIGHT = 37;
 export const BASE_TICK_MS = 140;
 export const MIN_TICK_MS = 50;
 export const MAX_BAITS = 5;

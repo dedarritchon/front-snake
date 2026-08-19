@@ -15,14 +15,12 @@ const Page = styled.div`
   overflow: hidden;
 `;
 
-function playerTag(email: string, name?: string | null): string {
+function playerName(email: string, name?: string | null): string {
   const fromName = name?.trim();
-  const fromEmail = email.split('@')[0];
-  const base = (
-    fromName && fromName.length > 0 ? fromName : fromEmail || 'PLAYER'
-  ).toUpperCase();
-  const cleaned = base.replace(/[^A-Z0-9]/g, '');
-  return cleaned.slice(0, 8) || 'PLAYER';
+  if (fromName) {
+    return fromName;
+  }
+  return email.split('@')[0] || 'Player';
 }
 
 function getConversationMeta(
@@ -56,27 +54,26 @@ function getConversationMeta(
 
 export function Home() {
   const {context} = useFrontContext();
-  const {levelId, levelTitle, levelSubtitle} = getConversationMeta(context);
+  const {levelId} = getConversationMeta(context);
   const {board, lastSubmit, start, submit} = useLeaderboard();
-  const {state, muted, toggleMute, rankedActive} = useSnakeGame(levelId, {
+  const {state, muted, toggleMute, pause, rankedActive} = useSnakeGame(levelId, {
     start,
     submit,
   });
   const teammate = context.teammate;
-  const label = playerTag(teammate.email, teammate.name);
+  const label = playerName(teammate.email, teammate.name);
 
   return (
     <Page>
       <SnakeBoard
         state={state}
-        levelTitle={levelTitle}
-        levelSubtitle={levelSubtitle}
         playerLabel={label}
         muted={muted}
         ranked={rankedActive}
         board={board}
         lastSubmit={lastSubmit}
         onToggleMute={toggleMute}
+        onPause={pause}
       />
     </Page>
   );

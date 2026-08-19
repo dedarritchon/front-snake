@@ -16,6 +16,7 @@ const LCD = {
 };
 
 const Shell = styled.div`
+  position: relative;
   height: 100%;
   width: 100%;
   display: flex;
@@ -34,42 +35,24 @@ const Shell = styled.div`
 `;
 
 const LevelBar = styled.div`
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  border-bottom: 2px solid ${LCD.border};
-  text-transform: uppercase;
-`;
-
-const LevelTop = styled.div`
-  display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-`;
-
-const LevelCopy = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
+  padding: 8px;
+  background: rgba(183, 200, 106, 0.9);
+  border-bottom: 2px solid ${LCD.border};
+  text-transform: uppercase;
 `;
 
 const LevelLabel = styled.span`
   font-size: 8px;
   letter-spacing: 0.08em;
-  opacity: 0.7;
-`;
-
-const LevelMeta = styled.span`
-  font-size: 7px;
-  letter-spacing: 0.02em;
-  opacity: 0.75;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `;
 
 const MuteButton = styled.button`
@@ -92,10 +75,6 @@ const BoardFrame = styled.div`
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  display: grid;
-  place-items: center;
-  padding: 4px;
-  container-type: size;
 `;
 
 const Board = styled.div<{
@@ -104,12 +83,32 @@ const Board = styled.div<{
 }>`
   position: relative;
   box-sizing: border-box;
-  aspect-ratio: ${(p) => p.$cols} / ${(p) => p.$rows};
-  width: min(100cqw, calc(100cqh * ${(p) => p.$cols} / ${(p) => p.$rows}));
-  height: min(100cqh, calc(100cqw * ${(p) => p.$rows} / ${(p) => p.$cols}));
-  border: 2px solid ${LCD.border};
+  width: 100%;
+  height: 100%;
   background: ${LCD.bg};
   overflow: hidden;
+`;
+
+const Dock = styled.div`
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  background: rgba(183, 200, 106, 0.9);
+  border-top: 2px solid ${LCD.border};
+`;
+
+const Hud = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 8px 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.3;
 `;
 
 const Cell = styled.div<{
@@ -173,17 +172,14 @@ const FoodCenter = styled.div`
   z-index: 1;
 `;
 
-const Hud = styled.div`
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  padding: 8px;
-  font-size: 11px;
+const HudName = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 8px;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
-  line-height: 1.3;
 `;
 
 const Overlay = styled.div`
@@ -211,14 +207,13 @@ const OverlayHint = styled.span`
 
 interface SnakeBoardProps {
   state: GameState;
-  levelTitle: string;
-  levelSubtitle?: string;
   playerLabel: string;
   muted: boolean;
   ranked: boolean;
   board: LeaderboardBoard;
   lastSubmit: SubmitRunResponse | null;
   onToggleMute: () => void;
+  onPause: () => void;
 }
 
 function segmentKey(point: Point, index: number): string {
@@ -227,36 +222,18 @@ function segmentKey(point: Point, index: number): string {
 
 export function SnakeBoard({
   state,
-  levelTitle,
-  levelSubtitle,
   playerLabel,
   muted,
   ranked,
   board,
   lastSubmit,
   onToggleMute,
+  onPause,
 }: SnakeBoardProps) {
-  const {snake, foods, gridWidth, gridHeight, score, highScore, status} = state;
+  const {snake, foods, gridWidth, gridHeight, score, status} = state;
 
   return (
     <Shell>
-      <LevelBar>
-        <LevelTop>
-          <LevelCopy>
-            <LevelLabel>Level {gameLevel(score)}</LevelLabel>
-            {levelSubtitle ? <LevelMeta>{levelSubtitle}</LevelMeta> : null}
-            <LevelMeta>{levelTitle}</LevelMeta>
-          </LevelCopy>
-          <MuteButton
-            type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? 'Muted' : 'Sound'}
-          </MuteButton>
-        </LevelTop>
-      </LevelBar>
-
       <BoardFrame>
         <Board $cols={gridWidth} $rows={gridHeight}>
           {snake.map((segment, index) => (
@@ -311,13 +288,29 @@ export function SnakeBoard({
         </Board>
       </BoardFrame>
 
-      <Hud>
-        <span>{score}</span>
-        <span>
-          {playerLabel} {highScore}
-        </span>
-      </Hud>
-      <Leaderboard board={board} ranked={ranked} />
+      <LevelBar>
+        <LevelLabel>Level {gameLevel(score)}</LevelLabel>
+        <MuteButton
+          type="button"
+          onClick={onToggleMute}
+          aria-label={muted ? 'Unmute' : 'Mute'}
+        >
+          {muted ? 'Muted' : 'Sound'}
+        </MuteButton>
+      </LevelBar>
+
+      <Dock>
+        <Hud>
+          <span>{score}</span>
+          <HudName>{playerLabel}</HudName>
+        </Hud>
+        <Leaderboard
+          board={board}
+          ranked={ranked}
+          playing={status === 'playing'}
+          onPause={onPause}
+        />
+      </Dock>
     </Shell>
   );
 }

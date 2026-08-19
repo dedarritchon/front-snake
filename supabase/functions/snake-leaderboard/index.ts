@@ -103,7 +103,7 @@ async function board(supabase: ReturnType<typeof createClient>, email?: string) 
     .eq('email_domain', domain)
     .order('best_score', {ascending: false})
     .order('updated_at', {ascending: true})
-    .limit(10);
+      .limit(100);
 
   if (error) {
     throw error;
