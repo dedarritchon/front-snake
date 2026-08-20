@@ -18,6 +18,7 @@ import {
   type MpPlayer,
   normalizeRoomId,
   queueMpInput,
+  shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
   startMp,
@@ -382,6 +383,8 @@ describe('multiplayerEngine', () => {
     expect(next.snakes[0].body).toHaveLength(3);
     expect(next.lastDeaths[0]).toMatchObject({playerId: 'a', cause: 'wall'});
     expect(shouldSlowMo(state, next)).toBe(false);
+    expect(shouldPersonalSlowMo(state, next, 'a')).toBe(true);
+    expect(shouldPersonalSlowMo(state, next, 'b')).toBe(false);
     expect(describeDeaths(next.lastDeaths, next.snakes)).toBe('A hit the wall');
   });
 
@@ -417,7 +420,53 @@ describe('multiplayerEngine', () => {
     expect(next.status).toBe('over');
     expect(next.lastDeaths.every((death) => death.cause === 'head')).toBe(true);
     expect(shouldSlowMo(state, next)).toBe(true);
+    expect(shouldPersonalSlowMo(state, next, 'a')).toBe(false);
     expect(describeDeaths(next.lastDeaths, next.snakes)).toBe('A and B crashed');
+  });
+
+  it('slow-mos when two of three crash and the third wins', () => {
+    let state = startMp(createMpLobby(PLAYERS, 1));
+    state = {
+      ...state,
+      foods: [{x: 0, y: 0}],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: 'right',
+          pending: 'right',
+          body: [
+            {x: 5, y: 10},
+            {x: 4, y: 10},
+            {x: 3, y: 10},
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: 'left',
+          pending: 'left',
+          body: [
+            {x: 7, y: 10},
+            {x: 8, y: 10},
+            {x: 9, y: 10},
+          ],
+        },
+        {
+          ...state.snakes[2],
+          direction: 'right',
+          pending: 'right',
+          body: [
+            {x: 2, y: 20},
+            {x: 1, y: 20},
+            {x: 0, y: 20},
+          ],
+        },
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe('over');
+    expect(next.winnerId).toBe('c');
+    expect(next.snakes[2].alive).toBe(true);
+    expect(shouldSlowMo(state, next)).toBe(true);
   });
 
   it('replays frames then returns to over', () => {
@@ -444,6 +493,7 @@ describe('multiplayerEngine', () => {
     const left = killPlayer(playing, 'b');
     expect(left.lastDeaths[0]?.cause).toBe('left');
     expect(shouldSlowMo(playing, left)).toBe(false);
+    expect(shouldPersonalSlowMo(playing, left, 'b')).toBe(false);
     expect(describeDeaths(left.lastDeaths, left.snakes)).toBe('B left');
   });
 });

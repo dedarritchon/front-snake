@@ -4,6 +4,7 @@ import {
   describeDeaths,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
+  type MpDeath,
   type MpPlayer,
   type MpSnake,
   type MpState,
@@ -175,11 +176,33 @@ const SnakeBlock = styled.div<{
   $color: string;
   $dead?: boolean;
 }>`
-  width: 84%;
-  height: 84%;
+  width: ${(p) => (p.$dead ? '92%' : '84%')};
+  height: ${(p) => (p.$dead ? '92%' : '84%')};
   background: ${(p) => p.$color};
-  border-radius: 22%;
-  opacity: ${(p) => (p.$dead ? 0.35 : 1)};
+  border-radius: ${(p) => (p.$dead ? '8%' : '22%')};
+  position: relative;
+
+  ${(p) =>
+    p.$dead
+      ? `
+    &::before,
+    &::after {
+      content: '';
+      position: absolute;
+      left: 18%;
+      top: 42%;
+      width: 64%;
+      height: 16%;
+      background: ${LCD.bg};
+    }
+    &::before {
+      transform: rotate(45deg);
+    }
+    &::after {
+      transform: rotate(-45deg);
+    }
+  `
+      : ''}
 `;
 
 const FoodGlyph = styled.div`
@@ -275,16 +298,57 @@ const LinkHint = styled.span`
   opacity: 0.85;
 `;
 
-const DeathHint = styled.span`
+const ReplayScrim = styled.div`
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 3px dashed ${LCD.pixel};
+  background: repeating-linear-gradient(
+    -18deg,
+    transparent,
+    transparent 8px,
+    rgba(42, 56, 22, 0.1) 8px,
+    rgba(42, 56, 22, 0.1) 10px
+  );
+`;
+
+const ReplayBanner = styled.div`
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  background: ${LCD.pixel};
+  color: ${LCD.bg};
+  padding: 8px 6px;
+  line-height: 1.4;
+`;
+
+const DeathHint = styled.span<{
+  $replay?: boolean;
+}>`
   position: absolute;
   left: 6px;
   right: 6px;
-  bottom: 8px;
-  font-size: 7px;
+  bottom: ${(p) => (p.$replay ? '10px' : '8px')};
+  z-index: 1;
+  font-size: ${(p) => (p.$replay ? '8px' : '7px')};
   letter-spacing: 0.05em;
   text-transform: uppercase;
   text-align: center;
   line-height: 1.5;
+  ${(p) =>
+    p.$replay
+      ? `
+    background: ${LCD.pixel};
+    color: ${LCD.bg};
+    padding: 8px 6px;
+  `
+      : ''}
 `;
 
 const RoomCode = styled.span`
@@ -314,6 +378,7 @@ export function VersusBoard({
   link,
   copied,
   roomId,
+  personalView,
   onToggleMute,
   onCopyId,
   onReady,
@@ -329,6 +394,7 @@ export function VersusBoard({
   link: RoomLink;
   copied: boolean;
   roomId: string;
+  personalView: {snakes: MpSnake[]; foods: Point[]; deaths: MpDeath[]} | null;
   onToggleMute: () => void;
   onCopyId: () => void;
   onReady: () => void;
@@ -336,9 +402,13 @@ export function VersusBoard({
 }) {
   const cols = state?.gridWidth ?? MP_GRID_WIDTH;
   const rows = state?.gridHeight ?? MP_GRID_HEIGHT;
-  const snakes: MpSnake[] = state?.snakes ?? [];
-  const foods = state?.foods ?? [];
+  const liveSnakes: MpSnake[] = state?.snakes ?? [];
+  const viewingPersonal = Boolean(personalView) && (state?.status ?? 'lobby') === 'playing';
+  const snakes = viewingPersonal && personalView ? personalView.snakes : liveSnakes;
+  const foods =
+    viewingPersonal && personalView ? personalView.foods : (state?.foods ?? []);
   const status = state?.status ?? 'lobby';
+  const slowMo = status === 'replay' || viewingPersonal;
   const seated = players.length > 0 ? players : snakes.map((snake, index) => ({
     id: snake.id,
     name: snake.name,
@@ -352,14 +422,18 @@ export function VersusBoard({
   const connected = link === 'connected';
   const canReady = connected && !error && waitingOnReady;
   const deathLine =
-    state && state.lastDeaths.length > 0
-      ? describeDeaths(state.lastDeaths, snakes)
-      : '';
+    viewingPersonal && personalView
+      ? describeDeaths(personalView.deaths, snakes)
+      : state && state.lastDeaths.length > 0
+        ? describeDeaths(state.lastDeaths, liveSnakes)
+        : '';
 
   return (
     <Shell>
       <LevelBar>
-        <LevelLabel>Versus {seated.length}/4</LevelLabel>
+        <LevelLabel>
+          {slowMo ? 'Slow-mo' : `Versus ${seated.length}/4`}
+        </LevelLabel>
         <MuteButton
           type="button"
           onClick={onToggleMute}
@@ -402,11 +476,14 @@ export function VersusBoard({
               ))
             : null}
 
+          {!error && slowMo ? (
+            <>
+              <ReplayScrim />
+              <ReplayBanner>Slow-mo</ReplayBanner>
+            </>
+          ) : null}
           {!error && deathLine && (status === 'playing' || status === 'replay') ? (
-            <DeathHint>
-              {status === 'replay' ? 'Slow-mo · ' : ''}
-              {deathLine}
-            </DeathHint>
+            <DeathHint $replay={slowMo}>{deathLine}</DeathHint>
           ) : null}
 
           {error ? (
@@ -477,7 +554,7 @@ export function VersusBoard({
       <Dock>
         <Roster>
           {seated.map((player) => {
-            const snake = snakes.find((row) => row.id === player.id);
+            const snake = liveSnakes.find((row) => row.id === player.id);
             return (
               <RosterRow key={player.id}>
                 <RosterName>
@@ -489,7 +566,7 @@ export function VersusBoard({
                     {status === 'playing' || status === 'replay' || status === 'over'
                       ? snake?.alive
                         ? ''
-                        : ' · out'
+                        : ' · blocks'
                       : player.ready
                         ? ' · ready'
                         : ''}

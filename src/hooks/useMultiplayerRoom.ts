@@ -13,10 +13,12 @@ import {
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
   MP_TICK_MS,
+  type MpDeath,
   type MpPlayer,
   type MpSnapshot,
   type MpState,
   queueMpInput,
+  shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
   startMp,
@@ -82,12 +84,21 @@ export function useMultiplayerRoom(
     snakeAudio.playStart();
     roomRef.current?.sendStart(seed);
     historyRef.current = [];
+    personalReplayRef.current = false;
+    setPersonalReplay(null);
     publish(startMp(createMpLobby(playersRef.current, seed), seed));
     clearReady();
   }, [clearReady, publish]);
   const beginMatchRef = useRef(beginMatch);
   beginMatchRef.current = beginMatch;
   const historyRef = useRef<MpSnapshot[]>([]);
+  const prevStateRef = useRef<MpState | null>(null);
+  const personalReplayRef = useRef(false);
+  const [personalReplay, setPersonalReplay] = useState<{
+    frames: MpSnapshot[];
+    index: number;
+    deaths: MpDeath[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -227,7 +238,75 @@ export function useMultiplayerRoom(
 
   useEffect(() => {
     historyRef.current = [];
+    prevStateRef.current = null;
+    personalReplayRef.current = false;
+    setPersonalReplay(null);
   }, [roomId]);
+
+  useEffect(() => {
+    const previous = prevStateRef.current;
+    const me = identityRef.current.playerId;
+    if (
+      previous &&
+      state &&
+      !personalReplayRef.current &&
+      shouldPersonalSlowMo(previous, state, me)
+    ) {
+      const crash = snapshotMp(state);
+      personalReplayRef.current = true;
+      setPersonalReplay({
+        frames: [...historyRef.current, crash, crash, crash],
+        index: 0,
+        deaths: state.lastDeaths.filter((death) => death.playerId === me),
+      });
+    }
+    if (state?.status === 'playing') {
+      if (
+        !previous ||
+        previous.status !== 'playing' ||
+        previous.tick !== state.tick
+      ) {
+        historyRef.current = [
+          ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
+          snapshotMp(state),
+        ];
+      }
+    }
+    if (
+      state?.status === 'replay' ||
+      state?.status === 'over' ||
+      state?.status === 'lobby'
+    ) {
+      personalReplayRef.current = false;
+      setPersonalReplay(null);
+      historyRef.current = [];
+    }
+    prevStateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    if (!personalReplay) {
+      return;
+    }
+    if (state?.status === 'replay' || state?.status === 'over') {
+      return;
+    }
+    const id = window.setInterval(() => {
+      setPersonalReplay((current) => {
+        if (!current) {
+          return null;
+        }
+        if (current.index + 1 >= current.frames.length) {
+          personalReplayRef.current = false;
+          return null;
+        }
+        return {...current, index: current.index + 1};
+      });
+    }, MP_REPLAY_TICK_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [personalReplay !== null, state?.status]);
 
   useEffect(() => {
     if (!isHost || (state?.status !== 'playing' && state?.status !== 'replay')) {
@@ -247,10 +326,6 @@ export function useMultiplayerRoom(
         return;
       }
       const next = tickMp(current);
-      historyRef.current = [
-        ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
-        snapshotMp(current),
-      ];
       if (next.snakes.some((snake, index) => snake.score > current.snakes[index].score)) {
         snakeAudio.playEat();
       }
@@ -258,8 +333,9 @@ export function useMultiplayerRoom(
         snakeAudio.playDie();
       }
       if (shouldSlowMo(current, next)) {
+        const crash = snapshotMp(next);
         publish(
-          beginReplay(next, [...historyRef.current, snapshotMp(next)]),
+          beginReplay(next, [...historyRef.current, crash, crash, crash]),
         );
         return;
       }
@@ -319,6 +395,16 @@ export function useMultiplayerRoom(
     void roomRef.current?.setReady(next);
   }, []);
 
+  const frame = personalReplay?.frames[personalReplay.index];
+  const personalView =
+    personalReplay && frame && state?.status === 'playing'
+      ? {
+          snakes: frame.snakes,
+          foods: frame.foods,
+          deaths: personalReplay.deaths,
+        }
+      : null;
+
   return {
     playerId: identityRef.current.playerId,
     state,
@@ -328,6 +414,7 @@ export function useMultiplayerRoom(
     error,
     link,
     connected: link === 'connected',
+    personalView,
     sendDirection,
     toggleReady,
   };

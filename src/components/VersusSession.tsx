@@ -54,6 +54,7 @@ export function VersusSession({
     ready,
     error,
     link,
+    personalView,
     sendDirection,
     toggleReady,
   } = useMultiplayerRoom(roomId, name, claimHost);
@@ -133,6 +134,7 @@ export function VersusSession({
         link={link}
         copied={copied}
         roomId={roomId}
+        personalView={personalView}
         onToggleMute={toggleMute}
         onCopyId={copyId}
         onReady={toggleReady}

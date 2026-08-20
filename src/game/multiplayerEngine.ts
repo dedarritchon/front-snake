@@ -10,8 +10,8 @@ import {DIRECTION_DELTA, OPPOSITE} from './types';
 
 export const MP_MAX_PLAYERS = 4;
 export const MP_TICK_MS = BASE_TICK_MS;
-export const MP_REPLAY_TICK_MS = 280;
-export const MP_REPLAY_FRAMES = 8;
+export const MP_REPLAY_TICK_MS = 420;
+export const MP_REPLAY_FRAMES = 10;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = ['#2a3816', '#1e4d6b', '#6b2e1e', '#3d2a58'] as const;
@@ -198,17 +198,32 @@ export function snapshotMp(state: MpState): MpSnapshot {
   };
 }
 
-export function shouldSlowMo(previous: MpState, next: MpState): boolean {
+export function shouldSlowMo(_previous: MpState, next: MpState): boolean {
   if (next.status !== 'over') {
     return false;
   }
   if (next.lastDeaths.length === 0) {
     return false;
   }
-  if (next.lastDeaths.every((death) => death.cause === 'left')) {
+  return !next.lastDeaths.every((death) => death.cause === 'left');
+}
+
+export function shouldPersonalSlowMo(
+  previous: MpState,
+  next: MpState,
+  playerId: string,
+): boolean {
+  if (next.status !== 'playing') {
     return false;
   }
-  return previous.snakes.filter((snake) => snake.alive).length <= 2;
+  const was = previous.snakes.find((snake) => snake.id === playerId);
+  const now = next.snakes.find((snake) => snake.id === playerId);
+  if (!was?.alive || now?.alive !== false) {
+    return false;
+  }
+  return next.lastDeaths.some(
+    (death) => death.playerId === playerId && death.cause !== 'left',
+  );
 }
 
 export function beginReplay(state: MpState, frames: MpSnapshot[]): MpState {
