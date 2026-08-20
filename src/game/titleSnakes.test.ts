@@ -29,6 +29,7 @@ describe('titleSnakes', () => {
       id: 0,
       direction: 'right',
       bias: 1,
+      straight: 0,
       body: [
         {x: 2, y: 2},
         {x: 1, y: 2},
@@ -45,6 +46,7 @@ describe('titleSnakes', () => {
       id: 0,
       direction: 'right',
       bias: 1,
+      straight: 0,
       body: [
         {x: 2, y: 2},
         {x: 1, y: 2},
@@ -56,20 +58,60 @@ describe('titleSnakes', () => {
     expect(next[0].direction).toBe('down');
   });
 
-  it('turns at a wall', () => {
+  it('turns inward instead of riding a wall', () => {
     const snake: TitleSnake = {
       id: 0,
-      direction: 'left',
+      direction: 'down',
       bias: 1,
+      straight: 0,
       body: [
         {x: 0, y: 5},
-        {x: 1, y: 5},
-        {x: 2, y: 5},
+        {x: 0, y: 4},
+        {x: 0, y: 3},
       ],
     };
     const next = tickTitleSnakes([snake], 20, 40, new Set());
-    expect(next[0].body[0]).toEqual({x: 0, y: 4});
-    expect(next[0].direction).toBe('up');
+    expect(next[0].body[0]).toEqual({x: 1, y: 5});
+    expect(next[0].direction).toBe('right');
+  });
+
+  it('turns after a short straight run', () => {
+    const snake: TitleSnake = {
+      id: 0,
+      direction: 'right',
+      bias: 1,
+      straight: 6,
+      body: [
+        {x: 8, y: 10},
+        {x: 7, y: 10},
+        {x: 6, y: 10},
+      ],
+    };
+    const next = tickTitleSnakes([snake], 20, 40, new Set());
+    expect(next[0].direction).toBe('down');
+    expect(next[0].body[0]).toEqual({x: 8, y: 11});
+    expect(next[0].straight).toBe(0);
+  });
+
+  it('does not hug the border for a long stretch', () => {
+    const logo = frontLogoCells(GRID_WIDTH, GRID_HEIGHT);
+    const bait = frontLogoBait(GRID_WIDTH, GRID_HEIGHT);
+    const blocked = blockedCells([...logo, bait]);
+    let snakes = createTitleSnakes(GRID_WIDTH, GRID_HEIGHT);
+    let borderStreak = 0;
+    let maxBorderStreak = 0;
+    const onBorder = (point: {x: number; y: number}) =>
+      point.x === 0 ||
+      point.x === GRID_WIDTH - 1 ||
+      point.y === 0 ||
+      point.y === GRID_HEIGHT - 1;
+    for (let i = 0; i < 400; i += 1) {
+      snakes = tickTitleSnakes(snakes, GRID_WIDTH, GRID_HEIGHT, blocked);
+      const riding = snakes.some((snake) => onBorder(snake.body[0]));
+      borderStreak = riding ? borderStreak + 1 : 0;
+      maxBorderStreak = Math.max(maxBorderStreak, borderStreak);
+    }
+    expect(maxBorderStreak).toBeLessThan(8);
   });
 
   it('never crawls onto FRONT or the title bait', () => {

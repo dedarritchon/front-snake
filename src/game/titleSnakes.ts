@@ -2,12 +2,14 @@ import type {Direction, Point} from './types';
 import {DIRECTION_DELTA, OPPOSITE} from './types';
 
 const CYCLE: Direction[] = ['right', 'down', 'left', 'up'];
+const MAX_STRAIGHT = 6;
 
 export interface TitleSnake {
   id: number;
   body: Point[];
   direction: Direction;
   bias: 1 | -1;
+  straight: number;
 }
 
 function cellKey(point: Point): string {
@@ -26,6 +28,15 @@ function inBounds(point: Point, cols: number, rows: number): boolean {
 function rotate(direction: Direction, turn: 1 | -1): Direction {
   const index = CYCLE.indexOf(direction);
   return CYCLE[(index + turn + CYCLE.length) % CYCLE.length];
+}
+
+function edgeDist(point: Point, cols: number, rows: number): number {
+  return Math.min(
+    point.x,
+    cols - 1 - point.x,
+    point.y,
+    rows - 1 - point.y,
+  );
 }
 
 function trail(head: Point, direction: Direction, length: number): Point[] {
@@ -49,12 +60,14 @@ export function createTitleSnakes(cols: number, rows: number): TitleSnake[] {
       id: 0,
       direction: 'right',
       bias: 1,
+      straight: 0,
       body: trail({x: Math.min(4, cols - 1), y: 2}, 'right', 5),
     },
     {
       id: 1,
       direction: 'left',
       bias: -1,
+      straight: 0,
       body: trail(
         {x: Math.max(0, cols - 8), y: Math.max(0, rows - 3)},
         'left',
@@ -65,6 +78,7 @@ export function createTitleSnakes(cols: number, rows: number): TitleSnake[] {
       id: 2,
       direction: 'up',
       bias: 1,
+      straight: 0,
       body: trail(
         {
           x: Math.max(0, cols - 3),
@@ -98,6 +112,7 @@ export function tickTitleSnakes(
       rotate(snake.direction, snake.bias === 1 ? -1 : 1),
       OPPOSITE[snake.direction],
     ];
+    const valid: {direction: Direction; next: Point}[] = [];
     for (const direction of order) {
       const next = ahead(head, direction);
       if (!inBounds(next, cols, rows) || blocked.has(cellKey(next))) {
@@ -106,12 +121,32 @@ export function tickTitleSnakes(
       if (self.has(cellKey(next))) {
         continue;
       }
-      return {
-        ...snake,
-        direction,
-        body: [next, ...snake.body.slice(0, -1)],
-      };
+      valid.push({direction, next});
     }
-    return snake;
+    if (valid.length === 0) {
+      return snake;
+    }
+    const nearEdge = edgeDist(head, cols, rows) <= 1;
+    const dueTurn = snake.straight >= MAX_STRAIGHT;
+    let pick = valid[0];
+    if (nearEdge) {
+      let best = -1;
+      for (const option of valid) {
+        const score = edgeDist(option.next, cols, rows);
+        if (score > best) {
+          best = score;
+          pick = option;
+        }
+      }
+    } else if (dueTurn) {
+      pick = valid.find((option) => option.direction !== snake.direction) ?? valid[0];
+    }
+    return {
+      ...snake,
+      direction: pick.direction,
+      straight:
+        pick.direction === snake.direction ? snake.straight + 1 : 0,
+      body: [pick.next, ...snake.body.slice(0, -1)],
+    };
   });
 }
