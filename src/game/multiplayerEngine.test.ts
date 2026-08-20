@@ -23,6 +23,7 @@ import {
   snapshotMp,
   startMp,
   tickMp,
+  toWireState,
 } from './multiplayerEngine';
 
 const PLAYERS: MpPlayer[] = [
@@ -486,6 +487,18 @@ describe('multiplayerEngine', () => {
     expect(replay.snakes[0].alive).toBe(false);
     replay = advanceReplay(replay);
     expect(replay.status).toBe('over');
+  });
+
+  it('strips replay frames from the wire payload', () => {
+    const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    const frame = snapshotMp(playing);
+    const replay = beginReplay({...playing, status: 'over', lastDeaths: []}, [
+      frame,
+      frame,
+    ]);
+    expect(replay.replay).toHaveLength(2);
+    expect(toWireState(replay).replay).toEqual([]);
+    expect(toWireState(playing)).toBe(playing);
   });
 
   it('does not slow-mo a disconnect', () => {

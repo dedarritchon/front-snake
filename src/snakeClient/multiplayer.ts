@@ -7,6 +7,7 @@ import {
   MP_MAX_PLAYERS,
   type MpPlayer,
   type MpState,
+  toWireState,
 } from '../game/multiplayerEngine';
 import type {Direction} from '../game/types';
 import {snakeSupabase} from './supabase';
@@ -191,7 +192,7 @@ export class MultiplayerRoom {
     void this.channel?.send({
       type: 'broadcast',
       event: 'state',
-      payload: state,
+      payload: toWireState(state),
     });
   }
 

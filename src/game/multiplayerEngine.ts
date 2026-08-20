@@ -14,7 +14,7 @@ export const MP_REPLAY_TICK_MS = 420;
 export const MP_REPLAY_FRAMES = 10;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
-export const MP_COLORS = ['#2a3816', '#1e4d6b', '#6b2e1e', '#3d2a58'] as const;
+export const MP_COLORS = ['#2b6cb0', '#d4531e', '#8b3aaf', '#0f8a7a'] as const;
 
 export type MpStatus = 'lobby' | 'playing' | 'replay' | 'over';
 export type MpDeathCause = 'wall' | 'self' | 'body' | 'head' | 'left';
@@ -113,17 +113,20 @@ function allBodies(snakes: MpSnake[]): Point[] {
   return snakes.flatMap((snake) => snake.body);
 }
 
-function isOccupied(point: Point, occupied: Point[]): boolean {
-  return occupied.some((other) => pointsEqual(other, point));
+function occupancySet(points: Point[]): Set<string> {
+  const occupied = new Set<string>();
+  for (const point of points) {
+    occupied.add(cellKey(point));
+  }
+  return occupied;
 }
 
-function spawnMpFood(occupied: Point[], rng: Rng): Point | null {
+function spawnMpFood(occupied: Set<string>, rng: Rng): Point | null {
   const free: Point[] = [];
   for (let y = 0; y < MP_GRID_HEIGHT; y += 1) {
     for (let x = 0; x < MP_GRID_WIDTH; x += 1) {
-      const point = {x, y};
-      if (!isOccupied(point, occupied)) {
-        free.push(point);
+      if (!occupied.has(`${x},${y}`)) {
+        free.push({x, y});
       }
     }
   }
@@ -140,12 +143,17 @@ function spawnMpFoods(
   rng: Rng,
 ): Point[] {
   const foods = [...existing];
+  const blocked = occupancySet(occupied);
+  for (const food of foods) {
+    blocked.add(cellKey(food));
+  }
   while (foods.length < count) {
-    const next = spawnMpFood([...occupied, ...foods], rng);
+    const next = spawnMpFood(blocked, rng);
     if (!next) {
       break;
     }
     foods.push(next);
+    blocked.add(cellKey(next));
   }
   return foods;
 }
@@ -196,6 +204,13 @@ export function snapshotMp(state: MpState): MpSnapshot {
     })),
     foods: state.foods.map((point) => ({...point})),
   };
+}
+
+export function toWireState(state: MpState): MpState {
+  if (state.replay.length === 0) {
+    return state;
+  }
+  return {...state, replay: []};
 }
 
 export function shouldSlowMo(_previous: MpState, next: MpState): boolean {
@@ -522,24 +537,28 @@ export function tickMp(state: MpState): MpState {
   }
 
   const eating = new Set<string>();
+  const foodCells = occupancySet(state.foods);
   for (const snake of alive) {
     if (dying.has(snake.id)) {
       continue;
     }
     const head = nextHead.get(snake.id);
-    if (head && state.foods.some((food) => pointsEqual(food, head))) {
+    if (head && foodCells.has(cellKey(head))) {
       eating.add(snake.id);
     }
   }
 
-  const occupied: Point[] = [];
+  const occupied = new Set<string>();
   for (const snake of state.snakes) {
     const skipTail =
       snake.alive &&
       !dying.has(snake.id) &&
       !eating.has(snake.id) &&
       snake.body.length > 0;
-    occupied.push(...(skipTail ? snake.body.slice(0, -1) : snake.body));
+    const body = skipTail ? snake.body.slice(0, -1) : snake.body;
+    for (const point of body) {
+      occupied.add(cellKey(point));
+    }
   }
 
   for (const snake of alive) {
@@ -562,7 +581,7 @@ export function tickMp(state: MpState): MpState {
       rememberDeath(deaths, snake.id, 'wall');
       continue;
     }
-    if (occupied.some((point) => pointsEqual(point, head))) {
+    if (occupied.has(cellKey(head))) {
       dying.add(snake.id);
       const owner = bodyOwner(state.snakes, head);
       if (!owner || owner.id === snake.id) {
@@ -602,12 +621,15 @@ export function tickMp(state: MpState): MpState {
     };
   });
 
+  const eatenHeads = new Set<string>();
+  for (const id of eating) {
+    const head = nextHead.get(id);
+    if (head) {
+      eatenHeads.add(cellKey(head));
+    }
+  }
   const remainingFoods = state.foods.filter(
-    (food) =>
-      ![...eating].some((id) => {
-        const head = nextHead.get(id);
-        return head ? pointsEqual(head, food) : false;
-      }),
+    (food) => !eatenHeads.has(cellKey(food)),
   );
   const maxScore = Math.max(0, ...snakes.map((snake) => snake.score));
   const foods = refillFoods(allBodies(snakes), remainingFoods, maxScore, rng);

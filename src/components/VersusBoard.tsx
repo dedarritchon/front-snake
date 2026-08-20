@@ -1,3 +1,4 @@
+import type {CSSProperties} from 'react';
 import {styled} from 'styled-components';
 
 import {
@@ -156,17 +157,8 @@ const Name = styled.span`
   white-space: nowrap;
 `;
 
-const Cell = styled.div<{
-  $x: number;
-  $y: number;
-  $cols: number;
-  $rows: number;
-}>`
+const Cell = styled.div`
   position: absolute;
-  left: ${(p) => (p.$x / p.$cols) * 100}%;
-  top: ${(p) => (p.$y / p.$rows) * 100}%;
-  width: ${(p) => 100 / p.$cols}%;
-  height: ${(p) => 100 / p.$rows}%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -356,8 +348,22 @@ const RoomCode = styled.span`
   letter-spacing: 0.18em;
 `;
 
-function segmentKey(snakeId: string, point: Point, index: number): string {
-  return `${snakeId}-${point.x}-${point.y}-${index}`;
+function segmentKey(snakeId: string, index: number): string {
+  return `${snakeId}-${index}`;
+}
+
+function cellStyle(
+  x: number,
+  y: number,
+  cols: number,
+  rows: number,
+): CSSProperties {
+  return {
+    left: `${(x / cols) * 100}%`,
+    top: `${(y / rows) * 100}%`,
+    width: `${100 / cols}%`,
+    height: `${100 / rows}%`,
+  };
 }
 
 function winnerName(state: MpState): string {
@@ -449,11 +455,8 @@ export function VersusBoard({
             ? snakes.flatMap((snake) =>
                 snake.body.map((segment, index) => (
                   <Cell
-                    key={segmentKey(snake.id, segment, index)}
-                    $x={segment.x}
-                    $y={segment.y}
-                    $cols={cols}
-                    $rows={rows}
+                    key={segmentKey(snake.id, index)}
+                    style={cellStyle(segment.x, segment.y, cols, rows)}
                   >
                     <SnakeBlock $color={snake.color} $dead={!snake.alive} />
                   </Cell>
@@ -464,10 +467,7 @@ export function VersusBoard({
             ? foods.map((food, index) => (
                 <Cell
                   key={`food-${food.x}-${food.y}-${index}`}
-                  $x={food.x}
-                  $y={food.y}
-                  $cols={cols}
-                  $rows={rows}
+                  style={cellStyle(food.x, food.y, cols, rows)}
                 >
                   <FoodGlyph>
                     <FoodCenter />
