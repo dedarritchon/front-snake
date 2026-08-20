@@ -323,7 +323,7 @@ describe('walls and spawn bounds', () => {
     ).toBe('gameover');
   });
 
-  it('keeps every apple on the 20x40 board', () => {
+  it('keeps every apple on the 22x40 board', () => {
     const state = createSimState('test', 2026);
     for (const food of state.foods) {
       expect(food.x).toBeGreaterThanOrEqual(0);

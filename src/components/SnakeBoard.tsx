@@ -1,7 +1,14 @@
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {styled} from 'styled-components';
 
-import {gameLevel} from '../game/engine';
+import {BASE_TICK_MS, gameLevel} from '../game/engine';
 import {frontLogoBait, frontLogoCells} from '../game/logo';
+import {
+  blockedCells,
+  createTitleSnakes,
+  tickTitleSnakes,
+  type TitleSnake,
+} from '../game/titleSnakes';
 import type {GameState, Point} from '../game/types';
 import type {
   LeaderboardBoard,
@@ -139,12 +146,13 @@ const Cell = styled.div<{
 
 const SnakeBlock = styled.div<{
   $logo?: boolean;
+  $ambient?: boolean;
 }>`
   width: ${(p) => (p.$logo ? '78%' : '84%')};
   height: ${(p) => (p.$logo ? '78%' : '84%')};
   background: ${LCD.pixel};
   border-radius: 22%;
-  opacity: ${(p) => (p.$logo ? 0.92 : 1)};
+  opacity: ${(p) => (p.$ambient ? 0.28 : p.$logo ? 0.92 : 1)};
 `;
 
 const ReadyHint = styled.div`
@@ -307,6 +315,39 @@ function segmentKey(point: Point, index: number): string {
   return `${point.x}-${point.y}-${index}`;
 }
 
+function useTitleSnakes(
+  active: boolean,
+  cols: number,
+  rows: number,
+  blocked: Set<string>,
+): TitleSnake[] {
+  const [snakes, setSnakes] = useState<TitleSnake[]>([]);
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
+
+  useEffect(() => {
+    if (!active) {
+      setSnakes([]);
+      return;
+    }
+    setSnakes(createTitleSnakes(cols, rows));
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (motion.matches) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      setSnakes((current) =>
+        tickTitleSnakes(current, cols, rows, blockedRef.current),
+      );
+    }, BASE_TICK_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [active, cols, rows]);
+
+  return snakes;
+}
+
 export function SnakeBoard({
   state,
   playerLabel,
@@ -328,6 +369,19 @@ export function SnakeBoard({
   const showTitle = !busy && status === 'ready';
   const logo = showTitle ? frontLogoCells(gridWidth, gridHeight) : [];
   const bait = showTitle ? frontLogoBait(gridWidth, gridHeight) : null;
+  const blocked = useMemo(() => {
+    if (!showTitle) {
+      return new Set<string>();
+    }
+    const cells = frontLogoCells(gridWidth, gridHeight);
+    return blockedCells([...cells, frontLogoBait(gridWidth, gridHeight)]);
+  }, [showTitle, gridWidth, gridHeight]);
+  const titleSnakes = useTitleSnakes(
+    showTitle,
+    gridWidth,
+    gridHeight,
+    blocked,
+  );
 
   return (
     <Shell>
@@ -344,6 +398,21 @@ export function SnakeBoard({
 
       <BoardFrame>
         <Board $cols={gridWidth} $rows={gridHeight}>
+          {showTitle
+            ? titleSnakes.flatMap((ambient) =>
+                ambient.body.map((segment, index) => (
+                  <Cell
+                    key={`title-${ambient.id}-${index}`}
+                    $x={segment.x}
+                    $y={segment.y}
+                    $cols={gridWidth}
+                    $rows={gridHeight}
+                  >
+                    <SnakeBlock $ambient />
+                  </Cell>
+                )),
+              )
+            : null}
           {!showTitle
             ? snake.map((segment, index) => (
                 <Cell

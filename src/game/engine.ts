@@ -1,7 +1,7 @@
 import type {Direction, GameState, Point} from './types';
 import {DIRECTION_DELTA, OPPOSITE} from './types';
 
-export const GRID_WIDTH = 20;
+export const GRID_WIDTH = 22;
 export const GRID_HEIGHT = 40;
 export const BASE_TICK_MS = 140;
 export const MIN_TICK_MS = 50;
