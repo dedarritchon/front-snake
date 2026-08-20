@@ -632,7 +632,10 @@ export function tickMp(state: MpState): MpState {
     (food) => !eatenHeads.has(cellKey(food)),
   );
   const maxScore = Math.max(0, ...snakes.map((snake) => snake.score));
-  const foods = refillFoods(allBodies(snakes), remainingFoods, maxScore, rng);
+  const foods =
+    remainingFoods.length >= baitCountForScore(maxScore)
+      ? remainingFoods
+      : refillFoods(allBodies(snakes), remainingFoods, maxScore, rng);
 
   return resolveWinner({
     ...state,

@@ -36,15 +36,26 @@ describe('FRONT logo', () => {
   it('uses a 4-wide N so FRONT does not read as FROKT', () => {
     const cells = frontLogoCells(GRID_WIDTH, GRID_HEIGHT);
     const originX = Math.max(0, Math.floor((GRID_WIDTH - 20) / 2));
-    const originY = Math.max(0, Math.floor(GRID_HEIGHT * 0.38) - 2);
+    const topY = Math.min(...cells.map((cell) => cell.y));
     const nX = originX + 3 + 1 + 3 + 1 + 3 + 1;
-    const left = cells.filter((cell) => cell.x === nX);
-    const right = cells.filter((cell) => cell.x === nX + 3);
+    const left = cells.filter(
+      (cell) => cell.x === nX && cell.y >= topY && cell.y < topY + 5,
+    );
+    const right = cells.filter(
+      (cell) => cell.x === nX + 3 && cell.y >= topY && cell.y < topY + 5,
+    );
     expect(left).toHaveLength(5);
     expect(right).toHaveLength(5);
-    expect(left.every((cell) => cell.y >= originY && cell.y < originY + 5)).toBe(
-      true,
-    );
+  });
+
+  it('paints SNAKE on a second row under FRONT', () => {
+    const cells = frontLogoCells(GRID_WIDTH, GRID_HEIGHT);
+    const topY = Math.min(...cells.map((cell) => cell.y));
+    const front = cells.filter((cell) => cell.y < topY + 5);
+    const snake = cells.filter((cell) => cell.y >= topY + 5);
+    expect(front.length).toBeGreaterThan(20);
+    expect(snake.length).toBeGreaterThan(20);
+    expect(Math.min(...snake.map((cell) => cell.y))).toBe(topY + 7);
   });
 
   it('leaves a gutter on both sides of FRONT', () => {

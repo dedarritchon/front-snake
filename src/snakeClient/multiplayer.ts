@@ -141,6 +141,8 @@ export class MultiplayerRoom {
   private previous: MpPlayer[] = [];
   private missingSince = new Map<string, number>();
   private generation = 0;
+  private pendingState: MpState | null = null;
+  private sendingState = false;
 
   constructor(roomId: string, self: PresenceMeta, handlers: RoomHandlers) {
     this.roomId = roomId;
@@ -189,11 +191,31 @@ export class MultiplayerRoom {
   }
 
   sendState(state: MpState): void {
-    void this.channel?.send({
-      type: 'broadcast',
-      event: 'state',
-      payload: toWireState(state),
-    });
+    this.pendingState = toWireState(state);
+    void this.flushState();
+  }
+
+  private async flushState(): Promise<void> {
+    if (this.sendingState) {
+      return;
+    }
+    this.sendingState = true;
+    try {
+      while (this.pendingState && this.channel && !this.closed) {
+        const payload = this.pendingState;
+        this.pendingState = null;
+        await this.channel.send({
+          type: 'broadcast',
+          event: 'state',
+          payload,
+        });
+      }
+    } finally {
+      this.sendingState = false;
+      if (this.pendingState && this.channel && !this.closed) {
+        void this.flushState();
+      }
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -244,6 +266,7 @@ export class MultiplayerRoom {
   private async tearChannel(): Promise<void> {
     const channel = this.channel;
     this.channel = null;
+    this.pendingState = null;
     this.generation += 1;
     if (!channel) {
       return;

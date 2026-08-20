@@ -1,4 +1,4 @@
-import type {CSSProperties} from 'react';
+import {useEffect, useRef} from 'react';
 import {styled} from 'styled-components';
 
 import {
@@ -108,6 +108,14 @@ const Board = styled.div<{
   overflow: hidden;
 `;
 
+const BoardCanvas = styled.canvas`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+`;
+
 const Dock = styled.div`
   flex: 0 0 auto;
   border-top: 2px solid ${LCD.border};
@@ -155,82 +163,6 @@ const Name = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-`;
-
-const Cell = styled.div`
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-`;
-
-const SnakeBlock = styled.div<{
-  $color: string;
-  $dead?: boolean;
-}>`
-  width: ${(p) => (p.$dead ? '92%' : '84%')};
-  height: ${(p) => (p.$dead ? '92%' : '84%')};
-  background: ${(p) => p.$color};
-  border-radius: ${(p) => (p.$dead ? '8%' : '22%')};
-  position: relative;
-
-  ${(p) =>
-    p.$dead
-      ? `
-    &::before,
-    &::after {
-      content: '';
-      position: absolute;
-      left: 18%;
-      top: 42%;
-      width: 64%;
-      height: 16%;
-      background: ${LCD.bg};
-    }
-    &::before {
-      transform: rotate(45deg);
-    }
-    &::after {
-      transform: rotate(-45deg);
-    }
-  `
-      : ''}
-`;
-
-const FoodGlyph = styled.div`
-  width: 70%;
-  height: 70%;
-  position: relative;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    background: ${LCD.pixel};
-    border-radius: 1px;
-  }
-
-  &::before {
-    left: 38%;
-    top: 8%;
-    width: 24%;
-    height: 84%;
-  }
-
-  &::after {
-    left: 8%;
-    top: 38%;
-    width: 84%;
-    height: 24%;
-  }
-`;
-
-const FoodCenter = styled.div`
-  position: absolute;
-  inset: 34%;
-  background: ${LCD.bg};
-  border-radius: 1px;
-  z-index: 1;
 `;
 
 const Overlay = styled.div`
@@ -343,34 +275,125 @@ const DeathHint = styled.span<{
       : ''}
 `;
 
-const RoomCode = styled.span`
+const RoomCode = styled.input`
   font-size: 12px;
   letter-spacing: 0.18em;
+  font-family: inherit;
+  color: inherit;
+  text-align: center;
+  border: none;
+  background: transparent;
+  width: 12ch;
+  padding: 4px 0;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+  caret-color: transparent;
+
+  &:focus {
+    outline: 2px solid ${LCD.border};
+  }
 `;
-
-function segmentKey(snakeId: string, index: number): string {
-  return `${snakeId}-${index}`;
-}
-
-function cellStyle(
-  x: number,
-  y: number,
-  cols: number,
-  rows: number,
-): CSSProperties {
-  return {
-    left: `${(x / cols) * 100}%`,
-    top: `${(y / rows) * 100}%`,
-    width: `${100 / cols}%`,
-    height: `${100 / rows}%`,
-  };
-}
 
 function winnerName(state: MpState): string {
   if (!state.winnerId) {
     return 'Draw';
   }
   return state.snakes.find((snake) => snake.id === state.winnerId)?.name ?? 'Win';
+}
+
+function paintVersus(
+  canvas: HTMLCanvasElement,
+  snakes: MpSnake[],
+  foods: Point[],
+  cols: number,
+  rows: number,
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (width === 0 || height === 0) {
+    return;
+  }
+  const pixelW = Math.round(width * dpr);
+  const pixelH = Math.round(height * dpr);
+  if (canvas.width !== pixelW || canvas.height !== pixelH) {
+    canvas.width = pixelW;
+    canvas.height = pixelH;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  const cellW = width / cols;
+  const cellH = height / rows;
+
+  const fillCell = (
+    x: number,
+    y: number,
+    color: string,
+    inset: number,
+    radius: number,
+  ) => {
+    const left = x * cellW + cellW * inset;
+    const top = y * cellH + cellH * inset;
+    const sizeW = cellW * (1 - inset * 2);
+    const sizeH = cellH * (1 - inset * 2);
+    const r = Math.min(sizeW, sizeH) * radius;
+    ctx.beginPath();
+    ctx.roundRect(left, top, sizeW, sizeH, r);
+    ctx.fillStyle = color;
+    ctx.fill();
+  };
+
+  for (const snake of snakes) {
+    const inset = snake.alive ? 0.08 : 0.04;
+    const radius = snake.alive ? 0.22 : 0.08;
+    for (const segment of snake.body) {
+      fillCell(segment.x, segment.y, snake.color, inset, radius);
+      if (!snake.alive) {
+        const cx = (segment.x + 0.5) * cellW;
+        const cy = (segment.y + 0.5) * cellH;
+        const arm = Math.min(cellW, cellH) * 0.28;
+        ctx.strokeStyle = LCD.bg;
+        ctx.lineWidth = Math.max(2, Math.min(cellW, cellH) * 0.14);
+        ctx.lineCap = 'square';
+        ctx.beginPath();
+        ctx.moveTo(cx - arm, cy - arm);
+        ctx.lineTo(cx + arm, cy + arm);
+        ctx.moveTo(cx + arm, cy - arm);
+        ctx.lineTo(cx - arm, cy + arm);
+        ctx.stroke();
+      }
+    }
+  }
+
+  for (const food of foods) {
+    const left = food.x * cellW;
+    const top = food.y * cellH;
+    ctx.fillStyle = LCD.pixel;
+    ctx.fillRect(
+      left + cellW * 0.38,
+      top + cellH * 0.08,
+      cellW * 0.24,
+      cellH * 0.84,
+    );
+    ctx.fillRect(
+      left + cellW * 0.08,
+      top + cellH * 0.38,
+      cellW * 0.84,
+      cellH * 0.24,
+    );
+    ctx.fillStyle = LCD.bg;
+    ctx.fillRect(
+      left + cellW * 0.34,
+      top + cellH * 0.34,
+      cellW * 0.32,
+      cellH * 0.32,
+    );
+  }
 }
 
 export function VersusBoard({
@@ -434,6 +457,28 @@ export function VersusBoard({
         ? describeDeaths(state.lastDeaths, liveSnakes)
         : '';
 
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const draw = () => {
+      if (status === 'lobby') {
+        const ctx = canvas.getContext('2d');
+        ctx?.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+      paintVersus(canvas, snakes, foods, cols, rows);
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas);
+    return () => {
+      observer.disconnect();
+    };
+  }, [snakes, foods, cols, rows, status]);
+
   return (
     <Shell>
       <LevelBar>
@@ -451,30 +496,7 @@ export function VersusBoard({
 
       <BoardFrame>
         <Board $cols={cols} $rows={rows}>
-          {status !== 'lobby'
-            ? snakes.flatMap((snake) =>
-                snake.body.map((segment, index) => (
-                  <Cell
-                    key={segmentKey(snake.id, index)}
-                    style={cellStyle(segment.x, segment.y, cols, rows)}
-                  >
-                    <SnakeBlock $color={snake.color} $dead={!snake.alive} />
-                  </Cell>
-                )),
-              )
-            : null}
-          {status !== 'lobby'
-            ? foods.map((food, index) => (
-                <Cell
-                  key={`food-${food.x}-${food.y}-${index}`}
-                  style={cellStyle(food.x, food.y, cols, rows)}
-                >
-                  <FoodGlyph>
-                    <FoodCenter />
-                  </FoodGlyph>
-                </Cell>
-              ))
-            : null}
+          <BoardCanvas ref={canvasRef} />
 
           {!error && slowMo ? (
             <>
@@ -504,7 +526,13 @@ export function VersusBoard({
           {!error && status === 'lobby' && (connected || link === 'reconnecting') ? (
             <Overlay>
               Room
-              <RoomCode>{roomId}</RoomCode>
+              <RoomCode
+                readOnly
+                value={roomId}
+                aria-label="Room id"
+                onFocus={(event) => event.currentTarget.select()}
+                onClick={(event) => event.currentTarget.select()}
+              />
               <OverlayHint>
                 {seated.length}/4 · {readyCount} ready · {isHost ? 'Host' : 'Guest'}
               </OverlayHint>

@@ -192,6 +192,14 @@ export function useMultiplayerRoom(
           if (cancelled || isHostRef.current) {
             return;
           }
+          const current = stateRef.current;
+          if (
+            current &&
+            next.status === current.status &&
+            next.tick < current.tick
+          ) {
+            return;
+          }
           stateRef.current = next;
           setState(next);
           if (next.status === 'playing') {
@@ -208,7 +216,6 @@ export function useMultiplayerRoom(
           }
           const next = queueMpInput(current, id, direction);
           stateRef.current = next;
-          setState(next);
         },
         onStart: () => {
           if (!isHostRef.current) {
@@ -312,37 +319,78 @@ export function useMultiplayerRoom(
     if (!isHost || (state?.status !== 'playing' && state?.status !== 'replay')) {
       return;
     }
-    const delay = state.status === 'replay' ? MP_REPLAY_TICK_MS : MP_TICK_MS;
-    const id = window.setInterval(() => {
+    let last = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
       const current = stateRef.current;
-      if (!current) {
+      if (
+        !current ||
+        (current.status !== 'playing' && current.status !== 'replay')
+      ) {
+        frame = window.requestAnimationFrame(step);
         return;
       }
-      if (current.status === 'replay') {
-        publish(advanceReplay(current));
-        return;
+      const delay =
+        current.status === 'replay' ? MP_REPLAY_TICK_MS : MP_TICK_MS;
+      let next = current;
+      let ate = false;
+      let died = false;
+      let ticks = 0;
+      while (now - last >= delay) {
+        last += delay;
+        ticks += 1;
+        if (next.status === 'replay') {
+          next = advanceReplay(next);
+          break;
+        }
+        if (next.status !== 'playing') {
+          break;
+        }
+        const after = tickMp(next);
+        if (
+          after.snakes.some(
+            (snake, index) => snake.score > next.snakes[index].score,
+          )
+        ) {
+          ate = true;
+        }
+        if (
+          after.snakes.some(
+            (snake, index) => next.snakes[index].alive && !snake.alive,
+          )
+        ) {
+          died = true;
+        }
+        if (shouldSlowMo(next, after)) {
+          const crash = snapshotMp(after);
+          next = beginReplay(after, [
+            ...historyRef.current,
+            crash,
+            crash,
+            crash,
+          ]);
+          break;
+        }
+        next = after;
+        if (ticks > 5) {
+          last = now;
+          break;
+        }
       }
-      if (current.status !== 'playing') {
-        return;
+      if (next !== current) {
+        if (ate) {
+          snakeAudio.playEat();
+        }
+        if (died) {
+          snakeAudio.playDie();
+        }
+        publish(next);
       }
-      const next = tickMp(current);
-      if (next.snakes.some((snake, index) => snake.score > current.snakes[index].score)) {
-        snakeAudio.playEat();
-      }
-      if (next.snakes.some((snake, index) => current.snakes[index].alive && !snake.alive)) {
-        snakeAudio.playDie();
-      }
-      if (shouldSlowMo(current, next)) {
-        const crash = snapshotMp(next);
-        publish(
-          beginReplay(next, [...historyRef.current, crash, crash, crash]),
-        );
-        return;
-      }
-      publish(next);
-    }, delay);
+      frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
     return () => {
-      window.clearInterval(id);
+      window.cancelAnimationFrame(frame);
     };
   }, [isHost, publish, state?.status]);
 
@@ -374,7 +422,6 @@ export function useMultiplayerRoom(
         snakeAudio.playMove(direction);
       }
       stateRef.current = next;
-      setState(next);
       return;
     }
     if (stateRef.current?.status !== 'playing') {
