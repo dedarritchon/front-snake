@@ -57,6 +57,7 @@ export function VersusSession({
     personalView,
     sendDirection,
     toggleReady,
+    setColor,
   } = useMultiplayerRoom(roomId, name, claimHost);
   const [muted, setMuted] = useState(() => snakeAudio.isMuted());
   const [copied, setCopied] = useState(false);
@@ -139,6 +140,7 @@ export function VersusSession({
         onCopyId={copyId}
         onReady={toggleReady}
         onSolo={onSolo}
+        onChangeColor={setColor}
       />
     </Page>
   );

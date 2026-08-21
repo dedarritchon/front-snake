@@ -3,12 +3,16 @@ import type {RealtimeChannel} from '@supabase/supabase-js';
 
 import {isDirection} from '../game/engine';
 import {
-  MP_COLORS,
   MP_MAX_PLAYERS,
   type MpPlayer,
   type MpState,
   toWireState,
 } from '../game/multiplayerEngine';
+import {
+  assignUniqueColors,
+  DEFAULT_SNAKE_COLOR,
+  isSnakeColor,
+} from '../game/snakeColors';
 import type {Direction} from '../game/types';
 import {snakeSupabase} from './supabase';
 
@@ -19,6 +23,7 @@ export type RoomLink = 'connecting' | 'connected' | 'reconnecting';
 export interface PresenceMeta {
   playerId: string;
   name: string;
+  color: string;
   host: boolean;
   ready: boolean;
   joinedAt: number;
@@ -44,6 +49,7 @@ function parseMeta(value: unknown): PresenceMeta | null {
   return {
     playerId: row.playerId,
     name: row.name,
+    color: isSnakeColor(row.color) ? row.color : DEFAULT_SNAKE_COLOR,
     host: row.host === true,
     ready: row.ready === true,
     joinedAt: typeof row.joinedAt === 'number' ? row.joinedAt : 0,
@@ -51,14 +57,12 @@ function parseMeta(value: unknown): PresenceMeta | null {
 }
 
 function colorRoster(players: MpPlayer[]): MpPlayer[] {
-  return players
-    .slice()
-    .sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id))
-    .slice(0, MP_MAX_PLAYERS)
-    .map((player, index) => ({
-      ...player,
-      color: MP_COLORS[index] ?? MP_COLORS[0],
-    }));
+  return assignUniqueColors(
+    players
+      .slice()
+      .sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id))
+      .slice(0, MP_MAX_PLAYERS),
+  );
 }
 
 export function rosterFromPresence(
@@ -76,7 +80,7 @@ export function rosterFromPresence(
     metas.map((meta) => ({
       id: meta.playerId,
       name: meta.name,
-      color: MP_COLORS[0],
+      color: meta.color,
       host: meta.host,
       ready: meta.ready,
       joinedAt: meta.joinedAt,
@@ -172,6 +176,18 @@ export class MultiplayerRoom {
     }
     this.self = {...this.self, name};
     await this.channel?.track(this.self);
+  }
+
+  async setColor(color: string): Promise<void> {
+    if (this.self.color === color || !isSnakeColor(color)) {
+      return;
+    }
+    this.self = {...this.self, color};
+    await this.channel?.track(this.self);
+  }
+
+  claimedColor(): string {
+    return this.self.color;
   }
 
   sendInput(dir: Direction): void {
@@ -293,7 +309,7 @@ export class MultiplayerRoom {
       incoming.push({
         id: this.self.playerId,
         name: this.self.name,
-        color: MP_COLORS[0],
+        color: this.self.color,
         host: this.self.host,
         ready: this.self.ready,
         joinedAt: this.self.joinedAt,

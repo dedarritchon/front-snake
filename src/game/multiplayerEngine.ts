@@ -5,6 +5,7 @@ import {
   type Rng,
   SCORE_PER_FOOD,
 } from './engine';
+import {DEFAULT_SNAKE_COLOR, SNAKE_COLORS} from './snakeColors';
 import type {Direction, Point} from './types';
 import {DIRECTION_DELTA, OPPOSITE} from './types';
 
@@ -14,7 +15,7 @@ export const MP_REPLAY_TICK_MS = 420;
 export const MP_REPLAY_FRAMES = 10;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
-export const MP_COLORS = ['#2b6cb0', '#d4531e', '#8b3aaf', '#0f8a7a'] as const;
+export const MP_COLORS = SNAKE_COLORS;
 
 export type MpStatus = 'lobby' | 'playing' | 'replay' | 'over';
 export type MpDeathCause = 'wall' | 'self' | 'body' | 'head' | 'left';
@@ -347,7 +348,7 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     return {
       id: player.id,
       name: player.name,
-      color: player.color || MP_COLORS[index] || MP_COLORS[0],
+      color: player.color || SNAKE_COLORS[index] || DEFAULT_SNAKE_COLOR,
       body: spawn.body.map((point) => ({...point})),
       direction: spawn.direction,
       pending: spawn.direction,

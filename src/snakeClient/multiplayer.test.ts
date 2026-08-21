@@ -29,6 +29,31 @@ describe('rosterFromPresence', () => {
     expect(roster[1].color).toBe(MP_COLORS[1]);
   });
 
+  it('honors claimed colors and reassigns duplicates', () => {
+    const roster = rosterFromPresence({
+      a: [
+        {
+          playerId: 'a',
+          name: 'Ann',
+          color: MP_COLORS[3],
+          host: true,
+          joinedAt: 10,
+        },
+      ],
+      b: [
+        {
+          playerId: 'b',
+          name: 'Bea',
+          color: MP_COLORS[3],
+          host: false,
+          joinedAt: 20,
+        },
+      ],
+    });
+    expect(roster[0].color).toBe(MP_COLORS[3]);
+    expect(roster[1].color).toBe(MP_COLORS[0]);
+  });
+
   it('reads ready from presence', () => {
     expect(
       rosterFromPresence({

@@ -24,6 +24,11 @@ import {
   startMp,
   tickMp,
 } from '../game/multiplayerEngine';
+import {
+  isSnakeColor,
+  loadPreferredColor,
+  savePreferredColor,
+} from '../game/snakeColors';
 import type {Direction} from '../game/types';
 import {
   MultiplayerRoom,
@@ -108,6 +113,7 @@ export function useMultiplayerRoom(
       {
         playerId: identity.playerId,
         name: nameRef.current,
+        color: loadPreferredColor(),
         host: claimHost,
         ready: false,
         joinedAt: identity.joinedAt,
@@ -136,6 +142,12 @@ export function useMultiplayerRoom(
           }
           setPlayers(nextPlayers);
           playersRef.current = nextPlayers;
+          const mine = nextPlayers.find(
+            (player) => player.id === identity.playerId,
+          );
+          if (mine && mine.color !== room.claimedColor()) {
+            void room.setColor(mine.color);
+          }
           const current = stateRef.current;
           const playing = current?.status === 'playing';
           const nowHost =
@@ -442,6 +454,26 @@ export function useMultiplayerRoom(
     void roomRef.current?.setReady(next);
   }, []);
 
+  const setColor = useCallback((color: string) => {
+    const status = stateRef.current?.status ?? 'lobby';
+    if (status === 'playing' || status === 'replay') {
+      return;
+    }
+    if (!isSnakeColor(color)) {
+      return;
+    }
+    const me = identityRef.current.playerId;
+    if (
+      playersRef.current.some(
+        (player) => player.id !== me && player.color === color,
+      )
+    ) {
+      return;
+    }
+    savePreferredColor(color);
+    void roomRef.current?.setColor(color);
+  }, []);
+
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
     personalReplay && frame && state?.status === 'playing'
@@ -464,5 +496,6 @@ export function useMultiplayerRoom(
     personalView,
     sendDirection,
     toggleReady,
+    setColor,
   };
 }

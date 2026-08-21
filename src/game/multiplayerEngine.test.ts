@@ -47,6 +47,11 @@ describe('multiplayerEngine', () => {
     expect(createMpLobby(extra, 1).snakes).toHaveLength(MP_MAX_PLAYERS);
   });
 
+  it('copies claimed colors onto snakes', () => {
+    const lobby = createMpLobby(PLAYERS.slice(0, 2), 1);
+    expect(lobby.snakes.map((snake) => snake.color)).toEqual(['#111', '#222']);
+  });
+
   it('starts two snakes in opposite corners', () => {
     const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 9));
     expect(playing.status).toBe('playing');

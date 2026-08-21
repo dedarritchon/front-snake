@@ -12,6 +12,7 @@ import {
 } from '../game/multiplayerEngine';
 import type {Point} from '../game/types';
 import type {RoomLink} from '../snakeClient/multiplayer';
+import {ColorPicker} from './ColorPicker';
 
 const LCD = {
   bg: '#b7c86a',
@@ -412,6 +413,7 @@ export function VersusBoard({
   onCopyId,
   onReady,
   onSolo,
+  onChangeColor,
 }: {
   state: MpState | null;
   players: MpPlayer[];
@@ -428,6 +430,7 @@ export function VersusBoard({
   onCopyId: () => void;
   onReady: () => void;
   onSolo: () => void;
+  onChangeColor: (color: string) => void;
 }) {
   const cols = state?.gridWidth ?? MP_GRID_WIDTH;
   const rows = state?.gridHeight ?? MP_GRID_HEIGHT;
@@ -450,6 +453,10 @@ export function VersusBoard({
   const waitingOnReady = status !== 'playing' && status !== 'replay';
   const connected = link === 'connected';
   const canReady = connected && !error && waitingOnReady;
+  const you = seated.find((player) => player.id === youId);
+  const takenColors = new Set(
+    seated.filter((player) => player.id !== youId).map((player) => player.color),
+  );
   const deathLine =
     viewingPersonal && personalView
       ? describeDeaths(personalView.deaths, snakes)
@@ -536,6 +543,14 @@ export function VersusBoard({
               <OverlayHint>
                 {seated.length}/4 · {readyCount} ready · {isHost ? 'Host' : 'Guest'}
               </OverlayHint>
+              {you ? (
+                <ColorPicker
+                  value={you.color}
+                  taken={takenColors}
+                  disabled={!canReady}
+                  onChange={onChangeColor}
+                />
+              ) : null}
               {link === 'reconnecting' ? (
                 <OverlayHint>Reconnecting…</OverlayHint>
               ) : null}
@@ -567,6 +582,13 @@ export function VersusBoard({
                       ? 'Need 2 players'
                       : `${readyCount}/${seated.length} ready`}
                   </OverlayHint>
+                  {you && canReady ? (
+                    <ColorPicker
+                      value={you.color}
+                      taken={takenColors}
+                      onChange={onChangeColor}
+                    />
+                  ) : null}
                   {canReady ? (
                     <Action type="button" onClick={onReady}>
                       {ready ? 'Unready' : 'Ready'}

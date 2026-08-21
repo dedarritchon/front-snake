@@ -12,6 +12,7 @@ import {
 } from '../game/multiplayerEngine';
 import {LOBBY_LEVEL_ID} from '../game/snakeEngine';
 import {useLeaderboard} from '../hooks/useLeaderboard';
+import {usePreferredSnakeColor} from '../hooks/usePreferredSnakeColor';
 import {useSnakeGame} from '../hooks/useSnakeGame';
 
 const Page = styled.div`
@@ -87,6 +88,7 @@ function RankedHome({
     submit,
     locked: busy !== null || versusSetup,
   });
+  const [snakeColor, setSnakeColor] = usePreferredSnakeColor();
   const label = guest
     ? 'Guest'
     : playerName(context?.teammate.email ?? '', context?.teammate.name);
@@ -109,6 +111,8 @@ function RankedHome({
         onCreateRoom={onCreateRoom}
         onJoinRoom={onJoinRoom}
         onCancelVersus={onCancelVersus}
+        snakeColor={snakeColor}
+        onChangeColor={setSnakeColor}
       />
     </Page>
   );

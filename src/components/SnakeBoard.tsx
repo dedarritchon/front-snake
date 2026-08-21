@@ -14,6 +14,7 @@ import type {
   LeaderboardBoard,
   SubmitRunResponse,
 } from '../snakeClient/leaderboard';
+import {ColorPicker} from './ColorPicker';
 import {Leaderboard} from './Leaderboard';
 
 const LCD = {
@@ -147,10 +148,11 @@ const Cell = styled.div<{
 const SnakeBlock = styled.div<{
   $logo?: boolean;
   $ambient?: boolean;
+  $color?: string;
 }>`
   width: ${(p) => (p.$logo ? '78%' : '84%')};
   height: ${(p) => (p.$logo ? '78%' : '84%')};
-  background: ${LCD.pixel};
+  background: ${(p) => p.$color ?? LCD.pixel};
   border-radius: 22%;
   opacity: ${(p) => (p.$ambient ? 0.28 : p.$logo ? 0.92 : 1)};
 `;
@@ -217,6 +219,12 @@ const HudName = styled.span`
   text-align: right;
   font-size: 8px;
   letter-spacing: 0.04em;
+`;
+
+const ColorDock = styled.div`
+  display: flex;
+  justify-content: center;
+  padding: 6px 8px 0;
 `;
 
 const Overlay = styled.div`
@@ -309,6 +317,8 @@ interface SnakeBoardProps {
   onCreateRoom?: () => void;
   onJoinRoom?: (roomId: string) => void;
   onCancelVersus?: () => void;
+  snakeColor: string;
+  onChangeColor: (color: string) => void;
 }
 
 function segmentKey(point: Point, index: number): string {
@@ -364,6 +374,8 @@ export function SnakeBoard({
   onCreateRoom,
   onJoinRoom,
   onCancelVersus,
+  snakeColor,
+  onChangeColor,
 }: SnakeBoardProps) {
   const {snake, foods, gridWidth, gridHeight, score, status} = state;
   const showTitle = !busy && status === 'ready';
@@ -422,7 +434,7 @@ export function SnakeBoard({
                   $cols={gridWidth}
                   $rows={gridHeight}
                 >
-                  <SnakeBlock />
+                    <SnakeBlock $color={snakeColor} />
                 </Cell>
               ))
             : null}
@@ -518,6 +530,7 @@ export function SnakeBoard({
                   Multiplayer
                 </VersusButton>
               ) : null}
+              <ColorPicker value={snakeColor} onChange={onChangeColor} />
             </ReadyHint>
           ) : null}
           {!busy && status === 'paused' ? (
@@ -546,6 +559,9 @@ export function SnakeBoard({
           <span>{score}</span>
           <HudName>{playerLabel}</HudName>
         </Hud>
+        <ColorDock>
+          <ColorPicker value={snakeColor} onChange={onChangeColor} />
+        </ColorDock>
         <Leaderboard
           board={board}
           playing={status === 'playing'}
