@@ -5,8 +5,11 @@ import {
   describeDeaths,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
+  MP_POWER_COST,
   type MpDeath,
   type MpPlayer,
+  mpRound,
+  type MpShot,
   type MpSnake,
   type MpState,
 } from '../game/multiplayerEngine';
@@ -166,6 +169,28 @@ const Name = styled.span`
   white-space: nowrap;
 `;
 
+const RosterMeta = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+`;
+
+const PowerBar = styled.span`
+  display: flex;
+  gap: 2px;
+`;
+
+const PowerTick = styled.span<{
+  $on: boolean;
+  $color: string;
+}>`
+  width: 5px;
+  height: 8px;
+  border: 1px solid ${LCD.border};
+  background: ${(p) => (p.$on ? p.$color : 'transparent')};
+`;
+
 const Overlay = styled.div`
   position: absolute;
   inset: 0;
@@ -303,10 +328,14 @@ function winnerName(state: MpState): string {
   return state.snakes.find((snake) => snake.id === state.winnerId)?.name ?? 'Win';
 }
 
+const EMPTY_FOODS: Point[] = [];
+const EMPTY_SHOTS: MpShot[] = [];
+
 function paintVersus(
   canvas: HTMLCanvasElement,
   snakes: MpSnake[],
   foods: Point[],
+  shots: MpShot[],
   cols: number,
   rows: number,
 ): void {
@@ -395,6 +424,12 @@ function paintVersus(
       cellH * 0.32,
     );
   }
+
+  const colorOf = (ownerId: string): string =>
+    snakes.find((snake) => snake.id === ownerId)?.color ?? LCD.pixel;
+  for (const shot of shots) {
+    fillCell(shot.x, shot.y, colorOf(shot.ownerId), 0.22, 0.12);
+  }
 }
 
 export function VersusBoard({
@@ -425,7 +460,12 @@ export function VersusBoard({
   link: RoomLink;
   copied: boolean;
   roomId: string;
-  personalView: {snakes: MpSnake[]; foods: Point[]; deaths: MpDeath[]} | null;
+  personalView: {
+    snakes: MpSnake[];
+    foods: Point[];
+    shots: MpShot[];
+    deaths: MpDeath[];
+  } | null;
   onToggleMute: () => void;
   onCopyId: () => void;
   onReady: () => void;
@@ -438,7 +478,13 @@ export function VersusBoard({
   const viewingPersonal = Boolean(personalView) && (state?.status ?? 'lobby') === 'playing';
   const snakes = viewingPersonal && personalView ? personalView.snakes : liveSnakes;
   const foods =
-    viewingPersonal && personalView ? personalView.foods : (state?.foods ?? []);
+    viewingPersonal && personalView
+      ? personalView.foods
+      : (state?.foods ?? EMPTY_FOODS);
+  const shots =
+    viewingPersonal && personalView
+      ? personalView.shots
+      : (state?.shots ?? EMPTY_SHOTS);
   const status = state?.status ?? 'lobby';
   const slowMo = status === 'replay' || viewingPersonal;
   const seated = players.length > 0 ? players : snakes.map((snake, index) => ({
@@ -476,7 +522,7 @@ export function VersusBoard({
         ctx?.clearRect(0, 0, canvas.width, canvas.height);
         return;
       }
-      paintVersus(canvas, snakes, foods, cols, rows);
+      paintVersus(canvas, snakes, foods, shots, cols, rows);
     };
     draw();
     const observer = new ResizeObserver(draw);
@@ -484,13 +530,17 @@ export function VersusBoard({
     return () => {
       observer.disconnect();
     };
-  }, [snakes, foods, cols, rows, status]);
+  }, [snakes, foods, shots, cols, rows, status]);
 
   return (
     <Shell>
       <LevelBar>
         <LevelLabel>
-          {slowMo ? 'Slow-mo' : `Versus ${seated.length}/4`}
+          {slowMo
+            ? 'Slow-mo'
+            : status === 'playing' || status === 'over'
+              ? `Round ${mpRound(liveSnakes)}`
+              : `Versus ${seated.length}/4`}
         </LevelLabel>
         <MuteButton
           type="button"
@@ -537,8 +587,8 @@ export function VersusBoard({
                 readOnly
                 value={roomId}
                 aria-label="Room id"
-                onFocus={(event) => event.currentTarget.select()}
-                onClick={(event) => event.currentTarget.select()}
+                onFocus={(event) => { event.currentTarget.select(); }}
+                onClick={(event) => { event.currentTarget.select(); }}
               />
               <OverlayHint>
                 {seated.length}/4 · {readyCount} ready · {isHost ? 'Host' : 'Guest'}
@@ -622,13 +672,26 @@ export function VersusBoard({
                         : ''}
                   </Name>
                 </RosterName>
-                <span>
-                  {status === 'lobby'
-                    ? player.ready
-                      ? 'Ready'
-                      : 'Wait'
-                    : (snake?.score ?? '')}
-                </span>
+                <RosterMeta>
+                  {status === 'playing' || status === 'replay' || status === 'over' ? (
+                    <PowerBar aria-label={`${player.name} power ${snake?.power ?? 0}`}>
+                      {Array.from({length: MP_POWER_COST}, (_, index) => (
+                        <PowerTick
+                          key={index}
+                          $color={player.color}
+                          $on={(snake?.power ?? 0) > index}
+                        />
+                      ))}
+                    </PowerBar>
+                  ) : null}
+                  <span>
+                    {status === 'lobby'
+                      ? player.ready
+                        ? 'Ready'
+                        : 'Wait'
+                      : (snake?.score ?? '')}
+                  </span>
+                </RosterMeta>
               </RosterRow>
             );
           })}

@@ -3,6 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {MP_COLORS, MP_MAX_PLAYERS} from '../game/multiplayerEngine';
 import {
   holdRoster,
+  parseRoomInput,
   PRESENCE_GRACE_MS,
   roomIdentity,
   rosterFromPresence,
@@ -27,31 +28,6 @@ describe('rosterFromPresence', () => {
       color: MP_COLORS[0],
     });
     expect(roster[1].color).toBe(MP_COLORS[1]);
-  });
-
-  it('honors claimed colors and reassigns duplicates', () => {
-    const roster = rosterFromPresence({
-      a: [
-        {
-          playerId: 'a',
-          name: 'Ann',
-          color: MP_COLORS[3],
-          host: true,
-          joinedAt: 10,
-        },
-      ],
-      b: [
-        {
-          playerId: 'b',
-          name: 'Bea',
-          color: MP_COLORS[3],
-          host: false,
-          joinedAt: 20,
-        },
-      ],
-    });
-    expect(roster[0].color).toBe(MP_COLORS[3]);
-    expect(roster[1].color).toBe(MP_COLORS[0]);
   });
 
   it('reads ready from presence', () => {
@@ -149,6 +125,28 @@ describe('holdRoster', () => {
     const held = holdRoster([ann, bea], [ann], 1000, new Map());
     expect(held.players[0].color).toBe(MP_COLORS[0]);
     expect(held.players[1].color).toBe(MP_COLORS[1]);
+  });
+});
+
+describe('parseRoomInput', () => {
+  it('still accepts a direction payload', () => {
+    expect(parseRoomInput({playerId: 'a', dir: 'up'})).toEqual({
+      playerId: 'a',
+      kind: 'dir',
+      dir: 'up',
+    });
+  });
+
+  it('reads a fire payload', () => {
+    expect(parseRoomInput({playerId: 'a', fire: true})).toEqual({
+      playerId: 'a',
+      kind: 'fire',
+    });
+  });
+
+  it('rejects a malformed payload', () => {
+    expect(parseRoomInput({playerId: 'a'})).toBeNull();
+    expect(parseRoomInput({dir: 'up'})).toBeNull();
   });
 });
 

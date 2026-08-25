@@ -16,9 +16,10 @@ export const MP_REPLAY_FRAMES = 10;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = SNAKE_COLORS;
+export const MP_POWER_COST = 5;
 
 export type MpStatus = 'lobby' | 'playing' | 'replay' | 'over';
-export type MpDeathCause = 'wall' | 'self' | 'body' | 'head' | 'left';
+export type MpDeathCause = 'wall' | 'self' | 'body' | 'head' | 'left' | 'shot';
 
 export interface MpDeath {
   playerId: string;
@@ -26,9 +27,17 @@ export interface MpDeath {
   otherId: string | null;
 }
 
+export interface MpShot {
+  ownerId: string;
+  x: number;
+  y: number;
+  direction: Direction;
+}
+
 export interface MpSnapshot {
   snakes: MpSnake[];
   foods: Point[];
+  shots: MpShot[];
 }
 
 export interface MpPlayer {
@@ -49,11 +58,14 @@ export interface MpSnake {
   pending: Direction;
   alive: boolean;
   score: number;
+  power: number;
+  pendingFire: boolean;
 }
 
 export interface MpState {
   snakes: MpSnake[];
   foods: Point[];
+  shots: MpShot[];
   status: MpStatus;
   winnerId: string | null;
   seed: number;
@@ -204,7 +216,13 @@ export function snapshotMp(state: MpState): MpSnapshot {
       body: snake.body.map((point) => ({...point})),
     })),
     foods: state.foods.map((point) => ({...point})),
+    shots: state.shots.map((shot) => ({...shot})),
   };
+}
+
+export function mpRound(snakes: MpSnake[]): number {
+  const apples = snakes.reduce((sum, snake) => sum + snake.score, 0) / SCORE_PER_FOOD;
+  return 1 + Math.floor(Math.max(0, apples));
 }
 
 export function toWireState(state: MpState): MpState {
@@ -252,6 +270,7 @@ export function beginReplay(state: MpState, frames: MpSnapshot[]): MpState {
     status: 'replay',
     snakes: first.snakes,
     foods: first.foods,
+    shots: first.shots,
     replay: frames,
     replayIndex: 0,
   };
@@ -276,6 +295,7 @@ export function advanceReplay(state: MpState): MpState {
     replayIndex: nextIndex,
     snakes: frame.snakes,
     foods: frame.foods,
+    shots: frame.shots,
   };
 }
 
@@ -307,6 +327,14 @@ export function describeDeaths(deaths: MpDeath[], snakes: MpSnake[]): string {
         death.otherId
           ? `${nameOf(death.playerId)} ran into ${nameOf(death.otherId)}`
           : `${nameOf(death.playerId)} hit a snake`,
+      );
+      continue;
+    }
+    if (death.cause === 'shot') {
+      lines.push(
+        death.otherId
+          ? `${nameOf(death.otherId)} shot ${nameOf(death.playerId)}`
+          : `${nameOf(death.playerId)} was shot`,
       );
       continue;
     }
@@ -354,12 +382,15 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
       pending: spawn.direction,
       alive: true,
       score: 0,
+      power: 0,
+      pendingFire: false,
     };
   });
 
   return {
     snakes,
     foods: [],
+    shots: [],
     status: 'lobby',
     winnerId: null,
     seed,
@@ -388,6 +419,8 @@ export function startMp(state: MpState, seed = state.seed): MpState {
       pending: spawn.direction,
       alive: true,
       score: 0,
+      power: 0,
+      pendingFire: false,
     };
   });
   const foods = refillFoods(allBodies(snakes), [], 0, rng);
@@ -395,6 +428,7 @@ export function startMp(state: MpState, seed = state.seed): MpState {
     ...state,
     snakes,
     foods,
+    shots: [],
     status: 'playing',
     winnerId: null,
     seed,
@@ -426,6 +460,20 @@ export function queueMpInput(
       }
       return {...snake, pending: next};
     }),
+  };
+}
+
+export function queueMpFire(state: MpState, playerId: string): MpState {
+  if (state.status !== 'playing') {
+    return state;
+  }
+  return {
+    ...state,
+    snakes: state.snakes.map((snake) =>
+      snake.id === playerId && snake.alive
+        ? {...snake, pendingFire: true}
+        : snake,
+    ),
   };
 }
 
@@ -475,6 +523,69 @@ function resolveWinner(state: MpState): MpState {
   };
 }
 
+function chargePower(power: number, apples: number): number {
+  return Math.min(MP_POWER_COST, power + apples);
+}
+
+function inBounds(point: Point): boolean {
+  return (
+    point.x >= 0 &&
+    point.x < MP_GRID_WIDTH &&
+    point.y >= 0 &&
+    point.y < MP_GRID_HEIGHT
+  );
+}
+
+function resolveShot(
+  shot: MpShot,
+  snakes: MpSnake[],
+  foods: Point[],
+  dying: Set<string>,
+  deaths: Map<string, MpDeath>,
+): {keep: boolean; foods: Point[]; appleOwner: string | null} {
+  const here = {x: shot.x, y: shot.y};
+  if (!inBounds(here)) {
+    return {keep: false, foods, appleOwner: null};
+  }
+
+  const foodIndex = foods.findIndex((food) => pointsEqual(food, here));
+  if (foodIndex >= 0) {
+    return {
+      keep: false,
+      foods: foods.filter((_, index) => index !== foodIndex),
+      appleOwner: shot.ownerId,
+    };
+  }
+
+  const headVictim = snakes.find(
+    (snake) =>
+      snake.alive &&
+      !dying.has(snake.id) &&
+      snake.id !== shot.ownerId &&
+      snake.body[0] &&
+      pointsEqual(snake.body[0], here),
+  );
+  if (headVictim) {
+    dying.add(headVictim.id);
+    rememberDeath(deaths, headVictim.id, 'shot', shot.ownerId);
+    return {keep: false, foods, appleOwner: null};
+  }
+
+  const hitBody = snakes.some((snake) =>
+    snake.body.some((segment, index) => {
+      if (index === 0 && snake.id !== shot.ownerId && snake.alive) {
+        return false;
+      }
+      return pointsEqual(segment, here);
+    }),
+  );
+  if (hitBody) {
+    return {keep: false, foods, appleOwner: null};
+  }
+
+  return {keep: true, foods, appleOwner: null};
+}
+
 export function tickMp(state: MpState): MpState {
   if (state.status !== 'playing') {
     return state;
@@ -485,6 +596,8 @@ export function tickMp(state: MpState): MpState {
   const nextHead = new Map<string, Point>();
   const nextDir = new Map<string, Direction>();
   const deaths = new Map<string, MpDeath>();
+  const powerSpent = new Set<string>();
+  const shotApples = new Map<string, number>();
 
   for (const snake of alive) {
     const dir =
@@ -498,8 +611,60 @@ export function tickMp(state: MpState): MpState {
   }
 
   const dying = new Set<string>();
+  const ownerHasShot = new Set(state.shots.map((shot) => shot.ownerId));
+  const spawned: MpShot[] = [];
+  for (const snake of alive) {
+    if (
+      !snake.pendingFire ||
+      snake.power < MP_POWER_COST ||
+      ownerHasShot.has(snake.id)
+    ) {
+      continue;
+    }
+    const dir = nextDir.get(snake.id) ?? snake.direction;
+    const head = nextHead.get(snake.id) ?? snake.body[0];
+    const delta = DIRECTION_DELTA[dir];
+    spawned.push({
+      ownerId: snake.id,
+      x: head.x + delta.x,
+      y: head.y + delta.y,
+      direction: dir,
+    });
+    ownerHasShot.add(snake.id);
+    powerSpent.add(snake.id);
+  }
+
+  const traveling = state.shots.map((shot) => {
+    const delta = DIRECTION_DELTA[shot.direction];
+    return {
+      ownerId: shot.ownerId,
+      x: shot.x + delta.x,
+      y: shot.y + delta.y,
+      direction: shot.direction,
+    };
+  });
+
+  let foods = [...state.foods];
+  const liveShots: MpShot[] = [];
+  for (const shot of [...traveling, ...spawned]) {
+    const resolved = resolveShot(shot, state.snakes, foods, dying, deaths);
+    foods = resolved.foods;
+    if (resolved.appleOwner) {
+      shotApples.set(
+        resolved.appleOwner,
+        (shotApples.get(resolved.appleOwner) ?? 0) + 1,
+      );
+    }
+    if (resolved.keep) {
+      liveShots.push(shot);
+    }
+  }
+
   const byCell = new Map<string, string[]>();
   for (const [id, head] of nextHead) {
+    if (dying.has(id)) {
+      continue;
+    }
     const key = cellKey(head);
     const list = byCell.get(key) ?? [];
     list.push(id);
@@ -523,6 +688,9 @@ export function tickMp(state: MpState): MpState {
     for (let j = i + 1; j < alive.length; j += 1) {
       const a = alive[i];
       const b = alive[j];
+      if (dying.has(a.id) || dying.has(b.id)) {
+        continue;
+      }
       const headA = nextHead.get(a.id);
       const headB = nextHead.get(b.id);
       if (!headA || !headB) {
@@ -537,8 +705,8 @@ export function tickMp(state: MpState): MpState {
     }
   }
 
+  const foodCells = occupancySet(foods);
   const eating = new Set<string>();
-  const foodCells = occupancySet(state.foods);
   for (const snake of alive) {
     if (dying.has(snake.id)) {
       continue;
@@ -572,12 +740,7 @@ export function tickMp(state: MpState): MpState {
       rememberDeath(deaths, snake.id, 'wall');
       continue;
     }
-    if (
-      head.x < 0 ||
-      head.x >= MP_GRID_WIDTH ||
-      head.y < 0 ||
-      head.y >= MP_GRID_HEIGHT
-    ) {
+    if (!inBounds(head)) {
       dying.add(snake.id);
       rememberDeath(deaths, snake.id, 'wall');
       continue;
@@ -593,21 +756,46 @@ export function tickMp(state: MpState): MpState {
     }
   }
 
+  for (let i = liveShots.length - 1; i >= 0; i -= 1) {
+    const shot = liveShots[i];
+    for (const snake of alive) {
+      if (dying.has(snake.id) || snake.id === shot.ownerId) {
+        continue;
+      }
+      const head = nextHead.get(snake.id);
+      if (head && pointsEqual(head, shot)) {
+        dying.add(snake.id);
+        rememberDeath(deaths, snake.id, 'shot', shot.ownerId);
+        liveShots.splice(i, 1);
+        break;
+      }
+    }
+  }
+
   for (const id of dying) {
     eating.delete(id);
   }
 
   const snakes = state.snakes.map((snake) => {
+    const apples =
+      (eating.has(snake.id) ? 1 : 0) + (shotApples.get(snake.id) ?? 0);
+    const powerBase = powerSpent.has(snake.id) ? 0 : snake.power;
     if (!snake.alive) {
-      return snake;
+      return {...snake, pendingFire: false};
     }
     if (dying.has(snake.id)) {
-      return {...snake, alive: false};
+      return {
+        ...snake,
+        alive: false,
+        pendingFire: false,
+        power: chargePower(powerBase, apples),
+        score: snake.score + apples * SCORE_PER_FOOD,
+      };
     }
     const dir = nextDir.get(snake.id) ?? snake.direction;
     const head = nextHead.get(snake.id);
     if (!head) {
-      return {...snake, alive: false};
+      return {...snake, alive: false, pendingFire: false};
     }
     const ate = eating.has(snake.id);
     const body = ate
@@ -618,7 +806,9 @@ export function tickMp(state: MpState): MpState {
       body,
       direction: dir,
       pending: dir,
-      score: ate ? snake.score + SCORE_PER_FOOD : snake.score,
+      pendingFire: false,
+      score: snake.score + apples * SCORE_PER_FOOD,
+      power: chargePower(powerBase, apples),
     };
   });
 
@@ -629,11 +819,11 @@ export function tickMp(state: MpState): MpState {
       eatenHeads.add(cellKey(head));
     }
   }
-  const remainingFoods = state.foods.filter(
+  const remainingFoods = foods.filter(
     (food) => !eatenHeads.has(cellKey(food)),
   );
   const maxScore = Math.max(0, ...snakes.map((snake) => snake.score));
-  const foods =
+  const nextFoods =
     remainingFoods.length >= baitCountForScore(maxScore)
       ? remainingFoods
       : refillFoods(allBodies(snakes), remainingFoods, maxScore, rng);
@@ -641,7 +831,8 @@ export function tickMp(state: MpState): MpState {
   return resolveWinner({
     ...state,
     snakes,
-    foods,
+    foods: nextFoods,
+    shots: liveShots,
     rngState: rng.state(),
     tick: state.tick + 1,
     lastDeaths: deaths.size > 0 ? [...deaths.values()] : state.lastDeaths,

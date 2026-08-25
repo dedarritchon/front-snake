@@ -29,13 +29,34 @@ export interface PresenceMeta {
   joinedAt: number;
 }
 
+export type RoomInput =
+  | {playerId: string; kind: 'dir'; dir: Direction}
+  | {playerId: string; kind: 'fire'};
+
 export interface RoomHandlers {
   onState: (state: MpState) => void;
   onRoster: (players: MpPlayer[], hostId: string | null) => void;
-  onInput: (playerId: string, direction: Direction) => void;
+  onInput: (input: RoomInput) => void;
   onStart: (seed: number) => void;
   onLink: (link: RoomLink) => void;
   onResynced: () => void;
+}
+
+export function parseRoomInput(payload: unknown): RoomInput | null {
+  if (typeof payload !== 'object' || payload === null) {
+    return null;
+  }
+  const body = payload as {playerId?: unknown; dir?: unknown; fire?: unknown};
+  if (typeof body.playerId !== 'string') {
+    return null;
+  }
+  if (body.fire === true) {
+    return {playerId: body.playerId, kind: 'fire'};
+  }
+  if (!isDirection(body.dir)) {
+    return null;
+  }
+  return {playerId: body.playerId, kind: 'dir', dir: body.dir};
 }
 
 function parseMeta(value: unknown): PresenceMeta | null {
@@ -195,6 +216,14 @@ export class MultiplayerRoom {
       type: 'broadcast',
       event: 'input',
       payload: {playerId: this.self.playerId, dir},
+    });
+  }
+
+  sendFire(): void {
+    void this.channel?.send({
+      type: 'broadcast',
+      event: 'input',
+      payload: {playerId: this.self.playerId, fire: true},
     });
   }
 
@@ -362,11 +391,11 @@ export class MultiplayerRoom {
         if (this.channel !== channel) {
           return;
         }
-        const body = payload as {playerId?: unknown; dir?: unknown};
-        if (typeof body.playerId !== 'string' || !isDirection(body.dir)) {
+        const input = parseRoomInput(payload);
+        if (!input) {
           return;
         }
-        this.handlers.onInput(body.playerId, body.dir);
+        this.handlers.onInput(input);
       })
       .on('broadcast', {event: 'start'}, ({payload}) => {
         if (this.channel !== channel) {

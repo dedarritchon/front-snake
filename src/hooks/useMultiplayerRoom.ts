@@ -17,6 +17,7 @@ import {
   type MpPlayer,
   type MpSnapshot,
   type MpState,
+  queueMpFire,
   queueMpInput,
   shouldPersonalSlowMo,
   shouldSlowMo,
@@ -206,8 +207,7 @@ export function useMultiplayerRoom(
           }
           const current = stateRef.current;
           if (
-            current &&
-            next.status === current.status &&
+            next.status === current?.status &&
             next.tick < current.tick
           ) {
             return;
@@ -218,7 +218,7 @@ export function useMultiplayerRoom(
             clearReadyRef.current();
           }
         },
-        onInput: (id, direction) => {
+        onInput: (input) => {
           if (!isHostRef.current) {
             return;
           }
@@ -226,7 +226,10 @@ export function useMultiplayerRoom(
           if (!current) {
             return;
           }
-          const next = queueMpInput(current, id, direction);
+          const next =
+            input.kind === 'fire'
+              ? queueMpFire(current, input.playerId)
+              : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
         },
         onStart: () => {
@@ -281,8 +284,7 @@ export function useMultiplayerRoom(
     }
     if (state?.status === 'playing') {
       if (
-        !previous ||
-        previous.status !== 'playing' ||
+        previous?.status !== 'playing' ||
         previous.tick !== state.tick
       ) {
         historyRef.current = [
@@ -443,6 +445,25 @@ export function useMultiplayerRoom(
     roomRef.current?.sendInput(direction);
   }, []);
 
+  const sendFire = useCallback(() => {
+    void snakeAudio.unlock();
+    if (isHostRef.current) {
+      const current = stateRef.current;
+      if (!current) {
+        return;
+      }
+      stateRef.current = queueMpFire(
+        current,
+        identityRef.current.playerId,
+      );
+      return;
+    }
+    if (stateRef.current?.status !== 'playing') {
+      return;
+    }
+    roomRef.current?.sendFire();
+  }, []);
+
   const toggleReady = useCallback(() => {
     const status = stateRef.current?.status ?? 'lobby';
     if (status === 'playing' || status === 'replay') {
@@ -480,6 +501,7 @@ export function useMultiplayerRoom(
       ? {
           snakes: frame.snakes,
           foods: frame.foods,
+          shots: frame.shots,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -495,6 +517,7 @@ export function useMultiplayerRoom(
     connected: link === 'connected',
     personalView,
     sendDirection,
+    sendFire,
     toggleReady,
     setColor,
   };

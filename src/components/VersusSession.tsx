@@ -56,6 +56,7 @@ export function VersusSession({
     link,
     personalView,
     sendDirection,
+    sendFire,
     toggleReady,
     setColor,
   } = useMultiplayerRoom(roomId, name, claimHost);
@@ -106,6 +107,11 @@ export function VersusSession({
         sendDirection(direction);
         return;
       }
+      if (event.code === 'Space' || key === ' ') {
+        event.preventDefault();
+        sendFire();
+        return;
+      }
       if (key === 'm') {
         event.preventDefault();
         toggleMute();
@@ -120,7 +126,7 @@ export function VersusSession({
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [sendDirection, toggleMute, toggleReady]);
+  }, [sendDirection, sendFire, toggleMute, toggleReady]);
 
   return (
     <Page>
