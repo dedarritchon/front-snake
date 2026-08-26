@@ -497,9 +497,13 @@ describe('multiplayerEngine', () => {
     expect(replay.snakes[0].alive).toBe(false);
     replay = advanceReplay(replay);
     expect(replay.status).toBe('over');
+    expect(replay.replay).toHaveLength(2);
+    const again = beginReplay(replay, replay.replay);
+    expect(again.status).toBe('replay');
+    expect(again.snakes[0].alive).toBe(true);
   });
 
-  it('strips replay frames from the wire payload', () => {
+  it('strips in-flight replay frames from the wire payload', () => {
     const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
     const frame = snapshotMp(playing);
     const replay = beginReplay({...playing, status: 'over', lastDeaths: []}, [
@@ -509,6 +513,10 @@ describe('multiplayerEngine', () => {
     expect(replay.replay).toHaveLength(2);
     expect(toWireState(replay).replay).toEqual([]);
     expect(toWireState(playing)).toBe(playing);
+    let over = advanceReplay(replay);
+    over = advanceReplay(over);
+    expect(over.status).toBe('over');
+    expect(toWireState(over).replay).toHaveLength(2);
   });
 
   it('does not slow-mo a disconnect', () => {

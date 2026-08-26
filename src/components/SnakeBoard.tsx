@@ -250,6 +250,16 @@ const OverlayHint = styled.span`
   line-height: 1.5;
 `;
 
+const VersusRow = styled.div`
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+
+  button {
+    margin-top: 0;
+  }
+`;
+
 const VersusButton = styled.button`
   margin-top: 4px;
   border: 2px solid ${LCD.border};
@@ -527,15 +537,19 @@ export function SnakeBoard({
               {guest ? (
                 <OverlayHint>Guest · ranks only in Front</OverlayHint>
               ) : null}
-              {onVersus ? (
-                <VersusButton type="button" onClick={onVersus}>
-                  Multiplayer
-                </VersusButton>
-              ) : null}
-              {onVsAi ? (
-                <VersusButton type="button" onClick={onVsAi}>
-                  VS AI
-                </VersusButton>
+              {onVersus || onVsAi ? (
+                <VersusRow>
+                  {onVersus ? (
+                    <VersusButton type="button" onClick={onVersus}>
+                      Multiplayer
+                    </VersusButton>
+                  ) : null}
+                  {onVsAi ? (
+                    <VersusButton type="button" onClick={onVsAi}>
+                      VS AI
+                    </VersusButton>
+                  ) : null}
+                </VersusRow>
               ) : null}
               <ColorPicker value={snakeColor} onChange={onChangeColor} />
             </ReadyHint>

@@ -3,6 +3,7 @@ import {styled} from 'styled-components';
 
 import {
   describeDeaths,
+  hasSlowMoClip,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
@@ -448,6 +449,7 @@ export function VersusBoard({
   onToggleMute,
   onCopyId,
   onReady,
+  onReplay,
   onSolo,
   onChangeColor,
 }: {
@@ -471,6 +473,7 @@ export function VersusBoard({
   onToggleMute: () => void;
   onCopyId: () => void;
   onReady: () => void;
+  onReplay?: () => void;
   onSolo: () => void;
   onChangeColor: (color: string) => void;
 }) {
@@ -631,6 +634,11 @@ export function VersusBoard({
                   ? winnerName(state)
                   : 'Over'}
               {deathLine ? <OverlayHint>{deathLine}</OverlayHint> : null}
+              {state && hasSlowMoClip(state) && onReplay ? (
+                <Action type="button" onClick={onReplay}>
+                  Replay slow-mo
+                </Action>
+              ) : null}
               {ai ? (
                 <>
                   <OverlayHint>Enter play again</OverlayHint>

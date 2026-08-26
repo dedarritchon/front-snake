@@ -46,6 +46,7 @@ export function VersusAiSession({onSolo}: {onSolo: () => void}) {
     sendDirection,
     sendFire,
     rematch,
+    replaySlowMo,
   } = useAiMatch(name);
   const [muted, setMuted] = useState(() => snakeAudio.isMuted());
 
@@ -117,6 +118,7 @@ export function VersusAiSession({onSolo}: {onSolo: () => void}) {
         onToggleMute={toggleMute}
         onCopyId={() => undefined}
         onReady={rematch}
+        onReplay={replaySlowMo}
         onSolo={onSolo}
         onChangeColor={() => undefined}
       />

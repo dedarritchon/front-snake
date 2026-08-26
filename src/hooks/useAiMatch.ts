@@ -268,6 +268,16 @@ export function useAiMatch(playerName: string) {
     beginMatch();
   }, [beginMatch]);
 
+  const replaySlowMo = useCallback(() => {
+    const current = stateRef.current;
+    if (!current || current.status !== 'over' || current.replay.length === 0) {
+      return;
+    }
+    const next = beginReplay(current, current.replay);
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
     personalReplay && frame && state?.status === 'playing'
@@ -287,5 +297,6 @@ export function useAiMatch(playerName: string) {
     sendDirection,
     sendFire,
     rematch,
+    replaySlowMo,
   };
 }

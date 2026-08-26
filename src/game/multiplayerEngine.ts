@@ -226,10 +226,14 @@ export function mpRound(snakes: MpSnake[]): number {
 }
 
 export function toWireState(state: MpState): MpState {
-  if (state.replay.length === 0) {
+  if (state.status !== 'replay' || state.replay.length === 0) {
     return state;
   }
   return {...state, replay: []};
+}
+
+export function hasSlowMoClip(state: MpState): boolean {
+  return state.replay.length > 0;
 }
 
 export function shouldSlowMo(_previous: MpState, next: MpState): boolean {
@@ -285,7 +289,6 @@ export function advanceReplay(state: MpState): MpState {
     return {
       ...state,
       status: 'over',
-      replay: [],
       replayIndex: 0,
     };
   }
