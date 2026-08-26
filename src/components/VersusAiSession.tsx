@@ -43,6 +43,7 @@ export function VersusAiSession({onSolo}: {onSolo: () => void}) {
     state,
     players,
     personalView,
+    eliminated,
     sendDirection,
     sendFire,
     rematch,
@@ -115,6 +116,7 @@ export function VersusAiSession({onSolo}: {onSolo: () => void}) {
         copied={false}
         roomId=""
         personalView={personalView}
+        youOut={eliminated}
         onToggleMute={toggleMute}
         onCopyId={() => undefined}
         onReady={rematch}

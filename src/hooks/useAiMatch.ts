@@ -64,6 +64,8 @@ export function useAiMatch(playerName: string) {
     index: number;
     deaths: MpDeath[];
   } | null>(null);
+  const eliminatedRef = useRef(false);
+  const [eliminated, setEliminated] = useState(false);
 
   const beginMatch = useCallback(() => {
     const seed = randomSeed();
@@ -76,6 +78,8 @@ export function useAiMatch(playerName: string) {
     historyRef.current = [];
     personalReplayRef.current = false;
     setPersonalReplay(null);
+    eliminatedRef.current = false;
+    setEliminated(false);
     snakeAudio.playStart();
     const next = startMp(createMpLobby(roster, seed), seed);
     stateRef.current = next;
@@ -116,6 +120,11 @@ export function useAiMatch(playerName: string) {
       historyRef.current = [];
     }
     prevStateRef.current = state;
+    const you = state?.snakes.find((snake) => snake.id === AI_YOU_ID);
+    if (you && !you.alive && !eliminatedRef.current) {
+      eliminatedRef.current = true;
+      setEliminated(true);
+    }
   }, [state]);
 
   useEffect(() => {
@@ -262,8 +271,14 @@ export function useAiMatch(playerName: string) {
   }, []);
 
   const rematch = useCallback(() => {
-    if (stateRef.current?.status === 'playing' || stateRef.current?.status === 'replay') {
+    const current = stateRef.current;
+    if (!current) {
       return;
+    }
+    if (current.status === 'playing' || current.status === 'replay') {
+      if (!eliminatedRef.current) {
+        return;
+      }
     }
     beginMatch();
   }, [beginMatch]);
@@ -294,6 +309,7 @@ export function useAiMatch(playerName: string) {
     state,
     players,
     personalView,
+    eliminated,
     sendDirection,
     sendFire,
     rematch,

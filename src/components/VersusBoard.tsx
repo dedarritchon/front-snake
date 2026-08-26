@@ -279,6 +279,27 @@ const ReplayBanner = styled.div`
   line-height: 1.4;
 `;
 
+const SpectateBar = styled.div`
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.5;
+  background: rgba(183, 200, 106, 0.92);
+  border: 2px solid ${LCD.border};
+  color: ${LCD.pixel};
+  padding: 10px 8px;
+`;
+
 const DeathHint = styled.span<{
   $replay?: boolean;
 }>`
@@ -446,6 +467,7 @@ export function VersusBoard({
   roomId,
   personalView,
   ai = false,
+  youOut = false,
   onToggleMute,
   onCopyId,
   onReady,
@@ -470,6 +492,7 @@ export function VersusBoard({
     deaths: MpDeath[];
   } | null;
   ai?: boolean;
+  youOut?: boolean;
   onToggleMute: () => void;
   onCopyId: () => void;
   onReady: () => void;
@@ -505,6 +528,8 @@ export function VersusBoard({
   const connected = link === 'connected';
   const canReady = connected && !error && waitingOnReady;
   const you = seated.find((player) => player.id === youId);
+  const watchingOut =
+    youOut && (status === 'playing' || status === 'replay');
   const takenColors = new Set(
     seated.filter((player) => player.id !== youId).map((player) => player.color),
   );
@@ -566,7 +591,16 @@ export function VersusBoard({
               <ReplayBanner>Slow-mo</ReplayBanner>
             </>
           ) : null}
-          {!error && deathLine && (status === 'playing' || status === 'replay') ? (
+          {!error && watchingOut ? (
+            <SpectateBar>
+              You're out
+              <OverlayHint>Enter play again</OverlayHint>
+              <Action type="button" onClick={onReady}>
+                Play again
+              </Action>
+            </SpectateBar>
+          ) : null}
+          {!error && !watchingOut && deathLine && (status === 'playing' || status === 'replay') ? (
             <DeathHint $replay={slowMo}>{deathLine}</DeathHint>
           ) : null}
 
