@@ -537,7 +537,7 @@ describe('multiplayerEngine', () => {
     expect(state.snakes[0].power).toBe(1);
   });
 
-  it('caps charge at five apples and zeros it on fire', () => {
+  it('caps charge at three apples and zeros it on fire', () => {
     let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
     const head = state.snakes[0].body[0];
     state = {

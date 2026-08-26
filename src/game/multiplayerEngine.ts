@@ -16,7 +16,7 @@ export const MP_REPLAY_FRAMES = 10;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = SNAKE_COLORS;
-export const MP_POWER_COST = 5;
+export const MP_POWER_COST = 3;
 
 export type MpStatus = 'lobby' | 'playing' | 'replay' | 'over';
 export type MpDeathCause = 'wall' | 'self' | 'body' | 'head' | 'left' | 'shot';
