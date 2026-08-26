@@ -66,7 +66,13 @@ export function useMultiplayerRoom(
   const publish = useCallback((next: MpState) => {
     stateRef.current = next;
     setState(next);
-    roomRef.current?.sendState(next);
+    const room = roomRef.current;
+    queueMicrotask(() => {
+      const latest = stateRef.current;
+      if (latest) {
+        room?.sendState(latest);
+      }
+    });
   }, []);
   const publishRef = useRef(publish);
   publishRef.current = publish;
@@ -101,6 +107,8 @@ export function useMultiplayerRoom(
   const prevStateRef = useRef<MpState | null>(null);
   const personalReplayRef = useRef(false);
   const localReplayRef = useRef(false);
+  const lastHostAtRef = useRef(0);
+  const lastHostTickRef = useRef(-1);
   const [personalReplay, setPersonalReplay] = useState<{
     frames: MpSnapshot[];
     index: number;
@@ -213,10 +221,12 @@ export function useMultiplayerRoom(
           const current = stateRef.current;
           if (
             next.status === current?.status &&
-            next.tick < current.tick
+            next.tick <= lastHostTickRef.current
           ) {
             return;
           }
+          lastHostTickRef.current = next.tick;
+          lastHostAtRef.current = performance.now();
           stateRef.current = next;
           setState(next);
           if (next.status === 'playing') {
@@ -267,6 +277,8 @@ export function useMultiplayerRoom(
     historyRef.current = [];
     prevStateRef.current = null;
     personalReplayRef.current = false;
+    lastHostAtRef.current = 0;
+    lastHostTickRef.current = -1;
     setPersonalReplay(null);
   }, [roomId]);
 
@@ -397,8 +409,10 @@ export function useMultiplayerRoom(
           break;
         }
         next = after;
-        last = now;
         break;
+      }
+      if (now - last > delay * 4) {
+        last = now - delay;
       }
       if (next !== current) {
         if (ate) {
@@ -421,6 +435,30 @@ export function useMultiplayerRoom(
       window.cancelAnimationFrame(frame);
     };
   }, [isHost, publish, state?.status]);
+
+  useEffect(() => {
+    if (isHost || state?.status !== 'playing') {
+      return;
+    }
+    const id = window.setInterval(() => {
+      if (isHostRef.current) {
+        return;
+      }
+      const current = stateRef.current;
+      if (!current || current.status !== 'playing') {
+        return;
+      }
+      if (performance.now() - lastHostAtRef.current < MP_TICK_MS) {
+        return;
+      }
+      const next = tickMp(current);
+      stateRef.current = next;
+      setState(next);
+    }, MP_TICK_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [isHost, state?.status]);
 
   useEffect(() => {
     if (state?.status === 'playing' || state?.status === 'replay') {
@@ -456,6 +494,14 @@ export function useMultiplayerRoom(
       return;
     }
     snakeAudio.playMove(direction);
+    const current = stateRef.current;
+    if (current) {
+      stateRef.current = queueMpInput(
+        current,
+        identityRef.current.playerId,
+        direction,
+      );
+    }
     roomRef.current?.sendInput(direction);
   }, []);
 
@@ -475,6 +521,11 @@ export function useMultiplayerRoom(
     if (stateRef.current?.status !== 'playing') {
       return;
     }
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    stateRef.current = queueMpFire(current, identityRef.current.playerId);
     roomRef.current?.sendFire();
   }, []);
 

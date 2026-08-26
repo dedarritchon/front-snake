@@ -209,8 +209,10 @@ export function useAiMatch(playerName: string) {
           break;
         }
         next = after;
-        last = now;
         break;
+      }
+      if (now - last > delay * 4) {
+        last = now - delay;
       }
       if (next !== current) {
         if (ate) {

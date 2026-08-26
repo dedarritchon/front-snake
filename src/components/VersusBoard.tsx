@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useLayoutEffect, useRef} from 'react';
 import {styled} from 'styled-components';
 
 import {
@@ -541,26 +541,38 @@ export function VersusBoard({
         : '';
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const paint = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    if (status === 'lobby') {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    paintVersus(canvas, snakes, foods, shots, cols, rows);
+  };
+  const paintRef = useRef(paint);
+  paintRef.current = paint;
+
+  useLayoutEffect(() => {
+    paint();
+  }, [snakes, foods, shots, cols, rows, status]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
       return;
     }
-    const draw = () => {
-      if (status === 'lobby') {
-        const ctx = canvas.getContext('2d');
-        ctx?.clearRect(0, 0, canvas.width, canvas.height);
-        return;
-      }
-      paintVersus(canvas, snakes, foods, shots, cols, rows);
-    };
-    draw();
-    const observer = new ResizeObserver(draw);
+    const observer = new ResizeObserver(() => {
+      paintRef.current();
+    });
     observer.observe(canvas);
     return () => {
       observer.disconnect();
     };
-  }, [snakes, foods, shots, cols, rows, status]);
+  }, []);
 
   return (
     <Shell>
