@@ -124,6 +124,7 @@ function bfsDist(
   start: Point,
   goals: Point[],
   blocked: Set<string>,
+  cap = 48,
 ): number {
   if (goals.length === 0) {
     return INF;
@@ -138,6 +139,9 @@ function bfsDist(
   while (cursor < queue.length) {
     const node = queue[cursor];
     cursor += 1;
+    if (node.dist >= cap) {
+      return INF;
+    }
     for (const dir of TURN) {
       const step = ahead(node.point, dir);
       const key = cellKey(step);
@@ -154,11 +158,11 @@ function bfsDist(
   return INF;
 }
 
-function flood(start: Point, blocked: Set<string>): number {
+function flood(start: Point, blocked: Set<string>, cap = 48): number {
   const seen = new Set<string>([cellKey(start)]);
   const queue: Point[] = [start];
   let cursor = 0;
-  while (cursor < queue.length) {
+  while (cursor < queue.length && seen.size < cap) {
     const point = queue[cursor];
     cursor += 1;
     for (const dir of TURN) {
@@ -270,19 +274,39 @@ function preferredFood(
   return pick;
 }
 
-function projectedHeads(state: MpState, selfId: string): Set<string> {
-  const cells = new Set<string>();
+function projectedHeads(state: MpState, selfId: string): {
+  contested: Set<string>;
+  cuts: Set<string>;
+} {
+  const contested = new Set<string>();
+  const cuts = new Set<string>();
   for (const snake of state.snakes) {
-    if (!snake.alive || snake.id === selfId) {
+    if (!snake.alive || snake.id === selfId || !snake.body[0]) {
       continue;
     }
     const dir =
       OPPOSITE[snake.direction] === snake.pending
         ? snake.direction
         : snake.pending;
-    cells.add(cellKey(ahead(snake.body[0], dir)));
+    const next = ahead(snake.body[0], dir);
+    contested.add(cellKey(next));
+    cuts.add(cellKey(ahead(next, dir)));
   }
-  return cells;
+  return {contested, cuts};
+}
+
+function huntRange(state: MpState, selfId: string, next: Point): number {
+  let best = INF;
+  for (const snake of state.snakes) {
+    if (!snake.alive || snake.id === selfId || !snake.body[0]) {
+      continue;
+    }
+    const dist = manhattan(next, snake.body[0]);
+    if (dist < best) {
+      best = dist;
+    }
+  }
+  return best;
 }
 
 export function chooseAiAction(state: MpState, playerId: string): AiAction {
@@ -293,8 +317,9 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
   }
 
   const head = self.body[0];
-  const contested = projectedHeads(state, self.id);
+  const {contested, cuts} = projectedHeads(state, self.id);
   const goal = preferredFood(state, self, kind);
+  const chasing = state.tick % 8 < (kind === 'hunter' ? 6 : 5);
   let bestDir = self.direction;
   let bestScore = -INF;
 
@@ -314,15 +339,28 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     const foodDist = goal ? bfsDist(next, [goal], blocked) : INF;
     const spawn = shotSpawn(head, dir);
     const hit = rayHit(spawn, dir, state, self.id);
-    let score = space;
-    if (foodDist < INF) {
-      score += 8_000 - foodDist * 20;
+    const prey = huntRange(state, self.id, next);
+    let score = space * 4;
+    if (dir === self.direction) {
+      score += 2_200;
     }
-    if (contested.has(cellKey(next))) {
-      score -= 4_000;
+    if (chasing && foodDist < INF) {
+      score += kind === 'hunter' ? 2_400 - foodDist * 14 : 4_200 - foodDist * 18;
+    }
+    if (kind === 'hunter') {
+      score += 3_600 - Math.min(prey, 30) * 90;
+    } else if (kind === 'flanker') {
+      score += 1_400 - Math.min(prey, 30) * 35;
+    }
+    const nextKey = cellKey(next);
+    if (contested.has(nextKey)) {
+      score += kind === 'hunter' ? -800 : -4_000;
+    }
+    if (cuts.has(nextKey)) {
+      score += kind === 'farmer' ? 800 : 3_200;
     }
     if (hit === 'head' && self.power >= MP_POWER_COST) {
-      score += kind === 'hunter' ? 20_000 : 6_000;
+      score += kind === 'hunter' ? 18_000 : kind === 'flanker' ? 10_000 : 4_000;
     }
     if (score > bestScore) {
       bestScore = score;
@@ -332,7 +370,8 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
 
   const fireHit = rayHit(shotSpawn(head, bestDir), bestDir, state, self.id);
   const fire =
-    self.power >= MP_POWER_COST && (fireHit === 'head' || fireHit === 'food');
+    self.power >= MP_POWER_COST &&
+    (fireHit === 'head' || (kind !== 'hunter' && fireHit === 'food'));
 
   return {dir: bestDir, fire};
 }

@@ -397,10 +397,8 @@ export function useMultiplayerRoom(
           break;
         }
         next = after;
-        if (ticks > 5) {
-          last = now;
-          break;
-        }
+        last = now;
+        break;
       }
       if (next !== current) {
         if (ate) {

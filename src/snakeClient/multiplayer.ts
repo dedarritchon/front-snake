@@ -168,6 +168,8 @@ export class MultiplayerRoom {
   private generation = 0;
   private pendingState: MpState | null = null;
   private sendingState = false;
+  private pendingView: MpState | null = null;
+  private emitFrame = 0;
 
   constructor(roomId: string, self: PresenceMeta, handlers: RoomHandlers) {
     this.roomId = roomId;
@@ -312,6 +314,11 @@ export class MultiplayerRoom {
     const channel = this.channel;
     this.channel = null;
     this.pendingState = null;
+    this.pendingView = null;
+    if (this.emitFrame !== 0) {
+      window.cancelAnimationFrame(this.emitFrame);
+      this.emitFrame = 0;
+    }
     this.generation += 1;
     if (!channel) {
       return;
@@ -330,6 +337,22 @@ export class MultiplayerRoom {
       this.reconnectTimer = null;
       void this.openChannel();
     }, delay);
+  }
+
+  private emitState(state: MpState): void {
+    this.pendingView = state;
+    if (this.emitFrame !== 0) {
+      return;
+    }
+    this.emitFrame = window.requestAnimationFrame(() => {
+      this.emitFrame = 0;
+      const next = this.pendingView;
+      this.pendingView = null;
+      if (!next || this.closed) {
+        return;
+      }
+      this.handlers.onState(next);
+    });
   }
 
   private emitRoster(channel: RealtimeChannel): void {
@@ -385,7 +408,7 @@ export class MultiplayerRoom {
         if (this.channel !== channel) {
           return;
         }
-        this.handlers.onState(payload as MpState);
+        this.emitState(payload as MpState);
       })
       .on('broadcast', {event: 'input'}, ({payload}) => {
         if (this.channel !== channel) {

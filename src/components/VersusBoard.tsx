@@ -382,43 +382,35 @@ function paintVersus(
   const cellW = width / cols;
   const cellH = height / rows;
 
-  const fillCell = (
-    x: number,
-    y: number,
-    color: string,
-    inset: number,
-    radius: number,
-  ) => {
-    const left = x * cellW + cellW * inset;
-    const top = y * cellH + cellH * inset;
-    const sizeW = cellW * (1 - inset * 2);
-    const sizeH = cellH * (1 - inset * 2);
-    const r = Math.min(sizeW, sizeH) * radius;
-    ctx.beginPath();
-    ctx.roundRect(left, top, sizeW, sizeH, r);
-    ctx.fillStyle = color;
-    ctx.fill();
-  };
-
   for (const snake of snakes) {
     const inset = snake.alive ? 0.08 : 0.04;
-    const radius = snake.alive ? 0.22 : 0.08;
+    const padX = cellW * inset;
+    const padY = cellH * inset;
+    const sizeW = cellW - padX * 2;
+    const sizeH = cellH - padY * 2;
+    ctx.fillStyle = snake.color;
     for (const segment of snake.body) {
-      fillCell(segment.x, segment.y, snake.color, inset, radius);
-      if (!snake.alive) {
-        const cx = (segment.x + 0.5) * cellW;
-        const cy = (segment.y + 0.5) * cellH;
-        const arm = Math.min(cellW, cellH) * 0.28;
-        ctx.strokeStyle = LCD.bg;
-        ctx.lineWidth = Math.max(2, Math.min(cellW, cellH) * 0.14);
-        ctx.lineCap = 'square';
-        ctx.beginPath();
-        ctx.moveTo(cx - arm, cy - arm);
-        ctx.lineTo(cx + arm, cy + arm);
-        ctx.moveTo(cx + arm, cy - arm);
-        ctx.lineTo(cx - arm, cy + arm);
-        ctx.stroke();
-      }
+      ctx.fillRect(
+        segment.x * cellW + padX,
+        segment.y * cellH + padY,
+        sizeW,
+        sizeH,
+      );
+    }
+    if (!snake.alive && snake.body[0]) {
+      const head = snake.body[0];
+      const cx = (head.x + 0.5) * cellW;
+      const cy = (head.y + 0.5) * cellH;
+      const arm = Math.min(cellW, cellH) * 0.28;
+      ctx.strokeStyle = LCD.bg;
+      ctx.lineWidth = Math.max(2, Math.min(cellW, cellH) * 0.14);
+      ctx.lineCap = 'square';
+      ctx.beginPath();
+      ctx.moveTo(cx - arm, cy - arm);
+      ctx.lineTo(cx + arm, cy + arm);
+      ctx.moveTo(cx + arm, cy - arm);
+      ctx.lineTo(cx - arm, cy + arm);
+      ctx.stroke();
     }
   }
 
@@ -450,7 +442,15 @@ function paintVersus(
   const colorOf = (ownerId: string): string =>
     snakes.find((snake) => snake.id === ownerId)?.color ?? LCD.pixel;
   for (const shot of shots) {
-    fillCell(shot.x, shot.y, colorOf(shot.ownerId), 0.22, 0.12);
+    const padX = cellW * 0.22;
+    const padY = cellH * 0.22;
+    ctx.fillStyle = colorOf(shot.ownerId);
+    ctx.fillRect(
+      shot.x * cellW + padX,
+      shot.y * cellH + padY,
+      cellW - padX * 2,
+      cellH - padY * 2,
+    );
   }
 }
 
