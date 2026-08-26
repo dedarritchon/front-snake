@@ -444,6 +444,7 @@ export function VersusBoard({
   copied,
   roomId,
   personalView,
+  ai = false,
   onToggleMute,
   onCopyId,
   onReady,
@@ -466,6 +467,7 @@ export function VersusBoard({
     shots: MpShot[];
     deaths: MpDeath[];
   } | null;
+  ai?: boolean;
   onToggleMute: () => void;
   onCopyId: () => void;
   onReady: () => void;
@@ -580,7 +582,7 @@ export function VersusBoard({
           {!error && link === 'reconnecting' && (status === 'playing' || status === 'replay') ? (
             <LinkHint>Reconnecting…</LinkHint>
           ) : null}
-          {!error && status === 'lobby' && (connected || link === 'reconnecting') ? (
+          {!error && !ai && status === 'lobby' && (connected || link === 'reconnecting') ? (
             <Overlay>
               Room
               <RoomCode
@@ -623,9 +625,20 @@ export function VersusBoard({
           ) : null}
           {!error && status === 'over' ? (
             <Overlay>
-              {state?.hostLeft ? 'Host left' : state ? winnerName(state) : 'Over'}
+              {state?.hostLeft && !ai
+                ? 'Host left'
+                : state
+                  ? winnerName(state)
+                  : 'Over'}
               {deathLine ? <OverlayHint>{deathLine}</OverlayHint> : null}
-              {state?.hostLeft ? null : (
+              {ai ? (
+                <>
+                  <OverlayHint>Enter play again</OverlayHint>
+                  <Action type="button" onClick={onReady}>
+                    Play again
+                  </Action>
+                </>
+              ) : state?.hostLeft ? null : (
                 <>
                   <OverlayHint>
                     {seated.length < 2
@@ -662,7 +675,7 @@ export function VersusBoard({
                   <Name>
                     {player.name}
                     {player.id === youId ? ' · you' : ''}
-                    {player.host ? ' · host' : ''}
+                    {!ai && player.host ? ' · host' : ''}
                     {status === 'playing' || status === 'replay' || status === 'over'
                       ? snake?.alive
                         ? ''

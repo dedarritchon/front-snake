@@ -3,6 +3,7 @@ import {useState} from 'react';
 import {styled} from 'styled-components';
 
 import {SnakeBoard} from '../components/SnakeBoard';
+import {VersusAiSession} from '../components/VersusAiSession';
 import {VersusSession} from '../components/VersusSession';
 import {useFrontContext} from '../context/FrontContext';
 import {
@@ -61,12 +62,14 @@ function getConversationMeta(context: WebViewContext): {
 
 type VersusFlow =
   | {kind: 'setup'}
-  | {kind: 'room'; roomId: string; host: boolean};
+  | {kind: 'room'; roomId: string; host: boolean}
+  | {kind: 'ai'};
 
 function RankedHome({
   versusSetup,
   joinError,
   onVersus,
+  onVsAi,
   onCreateRoom,
   onJoinRoom,
   onCancelVersus,
@@ -74,6 +77,7 @@ function RankedHome({
   versusSetup: boolean;
   joinError: string | null;
   onVersus: () => void;
+  onVsAi: () => void;
   onCreateRoom: () => void;
   onJoinRoom: (roomId: string) => void;
   onCancelVersus: () => void;
@@ -108,6 +112,7 @@ function RankedHome({
         onToggleMute={toggleMute}
         onPause={pause}
         onVersus={onVersus}
+        onVsAi={onVsAi}
         onCreateRoom={onCreateRoom}
         onJoinRoom={onJoinRoom}
         onCancelVersus={onCancelVersus}
@@ -121,6 +126,17 @@ function RankedHome({
 export function Home() {
   const [versus, setVersus] = useState<VersusFlow | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
+
+  if (versus?.kind === 'ai') {
+    return (
+      <VersusAiSession
+        onSolo={() => {
+          setVersus(null);
+          setJoinError(null);
+        }}
+      />
+    );
+  }
 
   if (versus?.kind === 'room') {
     return (
@@ -142,6 +158,10 @@ export function Home() {
       onVersus={() => {
         setJoinError(null);
         setVersus({kind: 'setup'});
+      }}
+      onVsAi={() => {
+        setJoinError(null);
+        setVersus({kind: 'ai'});
       }}
       onCreateRoom={() => {
         setJoinError(null);

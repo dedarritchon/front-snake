@@ -312,6 +312,7 @@ interface SnakeBoardProps {
   onToggleMute: () => void;
   onPause: () => void;
   onVersus?: () => void;
+  onVsAi?: () => void;
   versusSetup?: boolean;
   joinError?: string | null;
   onCreateRoom?: () => void;
@@ -369,6 +370,7 @@ export function SnakeBoard({
   onToggleMute,
   onPause,
   onVersus,
+  onVsAi,
   versusSetup,
   joinError,
   onCreateRoom,
@@ -528,6 +530,11 @@ export function SnakeBoard({
               {onVersus ? (
                 <VersusButton type="button" onClick={onVersus}>
                   Multiplayer
+                </VersusButton>
+              ) : null}
+              {onVsAi ? (
+                <VersusButton type="button" onClick={onVsAi}>
+                  VS AI
                 </VersusButton>
               ) : null}
               <ColorPicker value={snakeColor} onChange={onChangeColor} />
