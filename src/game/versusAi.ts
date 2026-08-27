@@ -124,7 +124,7 @@ function bfsDist(
   start: Point,
   goals: Point[],
   blocked: Set<string>,
-  cap = 48,
+  cap = 80,
 ): number {
   if (goals.length === 0) {
     return INF;
@@ -224,54 +224,36 @@ function manhattan(a: Point, b: Point): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
-function preferredFood(
+function foodGoals(
   state: MpState,
   self: MpSnake,
   kind: AiKind,
-): Point | null {
+  blocked: Set<string>,
+): Point[] {
   if (state.foods.length === 0) {
-    return null;
-  }
-  if (kind !== 'flanker') {
-    let best = state.foods[0];
-    let bestDist = manhattan(self.body[0], best);
-    for (const food of state.foods.slice(1)) {
-      const dist = manhattan(self.body[0], food);
-      if (dist < bestDist) {
-        best = food;
-        bestDist = dist;
-      }
-    }
-    return best;
+    return [];
   }
   const others = state.snakes.filter(
     (snake) => snake.alive && snake.id !== self.id,
   );
-  const claimed = new Set<string>();
-  for (const other of others) {
-    let nearest = state.foods[0];
-    let nearestDist = manhattan(other.body[0], nearest);
-    for (const food of state.foods.slice(1)) {
-      const dist = manhattan(other.body[0], food);
-      if (dist < nearestDist) {
-        nearest = food;
-        nearestDist = dist;
-      }
+  const ranked = state.foods.map((food) => {
+    const mine = bfsDist(self.body[0], [food], blocked);
+    let rival = INF;
+    for (const other of others) {
+      rival = Math.min(rival, manhattan(other.body[0], food));
     }
-    claimed.add(cellKey(nearest));
-  }
-  const open = state.foods.filter((food) => !claimed.has(cellKey(food)));
-  const pool = open.length > 0 ? open : state.foods;
-  let pick = pool[0];
-  let bestDist = manhattan(self.body[0], pick);
-  for (const food of pool.slice(1)) {
-    const dist = manhattan(self.body[0], food);
-    if (dist < bestDist) {
-      pick = food;
-      bestDist = dist;
+    return {food, mine, rival};
+  });
+  const reachable = ranked.filter((row) => row.mine < INF);
+  const pool = reachable.length > 0 ? reachable : ranked;
+  const winnable = pool.filter((row) => row.mine <= row.rival + 1);
+  if (kind === 'flanker') {
+    const open = pool.filter((row) => row.mine <= row.rival);
+    if (open.length > 0) {
+      return open.map((row) => row.food);
     }
   }
-  return pick;
+  return (winnable.length > 0 ? winnable : pool).map((row) => row.food);
 }
 
 function edgeMargin(point: Point): number {
@@ -286,13 +268,13 @@ function edgeMargin(point: Point): number {
 function edgeCost(point: Point): number {
   const margin = edgeMargin(point);
   if (margin <= 0) {
-    return 1_600;
+    return 280;
   }
   if (margin === 1) {
-    return 700;
+    return 90;
   }
   if (margin === 2) {
-    return 220;
+    return 25;
   }
   return 0;
 }
@@ -327,7 +309,8 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
 
   const head = self.body[0];
   const {contested, cuts} = projectedHeads(state, self.id);
-  const goal = preferredFood(state, self, kind);
+  const lookBlocked = occupancy(state, self, {x: -1, y: -1});
+  const goals = foodGoals(state, self, kind, lookBlocked);
   let bestDir = self.direction;
   let bestScore = -INF;
 
@@ -344,17 +327,19 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
       continue;
     }
     const space = flood(next, blocked);
-    const foodDist = goal ? bfsDist(next, [goal], blocked) : INF;
+    const foodDist = goals.length > 0 ? bfsDist(next, goals, blocked) : INF;
     const spawn = shotSpawn(head, dir);
     const hit = rayHit(spawn, dir, state, self.id);
-    let score = space + edgeMargin(next) * 25 - edgeCost(next);
-    const closeFood = foodDist <= 6;
-    const grabFood = closeFood || state.tick % 5 !== 1;
-    if (grabFood && foodDist < INF) {
-      score += 8_000 - foodDist * 20;
+    let score = space;
+    const closeFood = foodDist <= 8;
+    if (foodDist < INF) {
+      score += 12_000 - foodDist * 80;
     }
     if (dir === self.direction) {
-      score += closeFood ? 8 : 280;
+      score += 18;
+    }
+    if (!closeFood) {
+      score -= edgeCost(next);
     }
     const nextKey = cellKey(next);
     if (contested.has(nextKey)) {

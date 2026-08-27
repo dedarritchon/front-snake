@@ -208,6 +208,64 @@ describe('chooseAiAction', () => {
     expect(chooseAiAction(state, 'rom').fire).toBe(false);
   });
 
+  it('turns toward a far side apple instead of cruising past', () => {
+    const state = place(TWO, (playing) => ({
+      ...playing,
+      foods: [{x: 5, y: 18}],
+      snakes: [
+        {
+          ...playing.snakes[0],
+          body: [
+            {x: 20, y: 20},
+            {x: 21, y: 20},
+            {x: 22, y: 20},
+          ],
+        },
+        {
+          ...playing.snakes[1],
+          id: 'hex',
+          direction: 'right',
+          pending: 'right',
+          body: [
+            {x: 5, y: 10},
+            {x: 4, y: 10},
+            {x: 3, y: 10},
+          ],
+        },
+      ],
+    }));
+    expect(chooseAiAction(state, 'hex').dir).toBe('down');
+  });
+
+  it('takes a wall apple instead of peeling away from it', () => {
+    const state = place(TWO, (playing) => ({
+      ...playing,
+      foods: [{x: 0, y: 10}],
+      snakes: [
+        {
+          ...playing.snakes[0],
+          body: [
+            {x: 20, y: 20},
+            {x: 21, y: 20},
+            {x: 22, y: 20},
+          ],
+        },
+        {
+          ...playing.snakes[1],
+          id: 'hex',
+          direction: 'left',
+          pending: 'left',
+          body: [
+            {x: 2, y: 10},
+            {x: 3, y: 10},
+            {x: 4, y: 10},
+          ],
+        },
+      ],
+    }));
+    expect(chooseAiAction(state, 'hex').dir).toBe('left');
+  });
+
   it('turns toward a close side apple', () => {
     const state = place(TWO, (playing) => ({
       ...playing,
