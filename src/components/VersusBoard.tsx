@@ -1,5 +1,5 @@
-import {useEffect, useLayoutEffect, useRef} from 'react';
-import {styled} from 'styled-components';
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { styled } from "styled-components";
 
 import {
   describeDeaths,
@@ -13,17 +13,18 @@ import {
   type MpShot,
   type MpSnake,
   type MpState,
-} from '../game/multiplayerEngine';
-import type {Point} from '../game/types';
-import type {RoomLink} from '../snakeClient/multiplayer';
-import {BuildMark} from './BuildMark';
-import {ColorPicker} from './ColorPicker';
+  roundStandings,
+} from "../game/multiplayerEngine";
+import type { Point } from "../game/types";
+import type { RoomLink } from "../snakeClient/multiplayer";
+import { BuildMark } from "./BuildMark";
+import { ColorPicker } from "./ColorPicker";
 
 const LCD = {
-  bg: '#b7c86a',
-  pixel: '#2a3816',
-  pixelSoft: 'rgba(42, 56, 22, 0.14)',
-  border: '#243214',
+  bg: "#b7c86a",
+  pixel: "#2a3816",
+  pixelSoft: "rgba(42, 56, 22, 0.14)",
+  border: "#243214",
 };
 
 const Shell = styled.div`
@@ -41,7 +42,7 @@ const Shell = styled.div`
     ${LCD.bg};
   user-select: none;
   touch-action: none;
-  font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
+  font-family: "Press Start 2P", "Courier New", Courier, monospace;
   color: ${LCD.pixel};
 `;
 
@@ -105,16 +106,8 @@ const Board = styled.div<{
   border: 2px solid ${LCD.border};
   background-color: ${LCD.bg};
   background-image:
-    linear-gradient(
-      to right,
-      rgba(42, 56, 22, 0.12) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      rgba(42, 56, 22, 0.12) 1px,
-      transparent 1px
-    );
+    linear-gradient(to right, rgba(42, 56, 22, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(42, 56, 22, 0.12) 1px, transparent 1px);
   background-size: ${(p) => 100 / p.$cols}% ${(p) => 100 / p.$rows}%;
   background-position: 0 0;
   overflow: hidden;
@@ -186,7 +179,14 @@ const RosterMeta = styled.span`
 
 const PowerBar = styled.span`
   display: flex;
+  align-items: center;
   gap: 2px;
+`;
+
+const PowerCount = styled.span`
+  font-size: 6px;
+  letter-spacing: 0.04em;
+  min-width: 1.6ch;
 `;
 
 const PowerTick = styled.span<{
@@ -196,7 +196,7 @@ const PowerTick = styled.span<{
   width: 5px;
   height: 8px;
   border: 1px solid ${LCD.border};
-  background: ${(p) => (p.$on ? p.$color : 'transparent')};
+  background: ${(p) => (p.$on ? p.$color : "transparent")};
 `;
 
 const Overlay = styled.div`
@@ -220,6 +220,25 @@ const OverlayHint = styled.span`
   letter-spacing: 0.04em;
   opacity: 0.85;
   line-height: 1.5;
+`;
+
+const Standings = styled.ol`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: min(100%, 22ch);
+`;
+
+const StandingRow = styled.li`
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 `;
 
 const Action = styled.button`
@@ -313,9 +332,9 @@ const DeathHint = styled.span<{
   position: absolute;
   left: 6px;
   right: 6px;
-  bottom: ${(p) => (p.$replay ? '10px' : '8px')};
+  bottom: ${(p) => (p.$replay ? "10px" : "8px")};
   z-index: 1;
-  font-size: ${(p) => (p.$replay ? '8px' : '7px')};
+  font-size: ${(p) => (p.$replay ? "8px" : "7px")};
   letter-spacing: 0.05em;
   text-transform: uppercase;
   text-align: center;
@@ -327,7 +346,7 @@ const DeathHint = styled.span<{
     color: ${LCD.bg};
     padding: 8px 6px;
   `
-      : ''}
+      : ""}
 `;
 
 const RoomCode = styled.input`
@@ -352,9 +371,11 @@ const RoomCode = styled.input`
 
 function winnerName(state: MpState): string {
   if (!state.winnerId) {
-    return 'Draw';
+    return "Draw";
   }
-  return state.snakes.find((snake) => snake.id === state.winnerId)?.name ?? 'Win';
+  return (
+    state.snakes.find((snake) => snake.id === state.winnerId)?.name ?? "Win"
+  );
 }
 
 const EMPTY_FOODS: Point[] = [];
@@ -368,7 +389,7 @@ function paintVersus(
   cols: number,
   rows: number,
 ): void {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   if (!ctx) {
     return;
   }
@@ -411,7 +432,7 @@ function paintVersus(
       const arm = Math.min(cellW, cellH) * 0.28;
       ctx.strokeStyle = LCD.bg;
       ctx.lineWidth = Math.max(2, Math.min(cellW, cellH) * 0.14);
-      ctx.lineCap = 'square';
+      ctx.lineCap = "square";
       ctx.beginPath();
       ctx.moveTo(cx - arm, cy - arm);
       ctx.lineTo(cx + arm, cy + arm);
@@ -510,8 +531,10 @@ export function VersusBoard({
   const cols = state?.gridWidth ?? MP_GRID_WIDTH;
   const rows = state?.gridHeight ?? MP_GRID_HEIGHT;
   const liveSnakes: MpSnake[] = state?.snakes ?? [];
-  const viewingPersonal = Boolean(personalView) && (state?.status ?? 'lobby') === 'playing';
-  const snakes = viewingPersonal && personalView ? personalView.snakes : liveSnakes;
+  const viewingPersonal =
+    Boolean(personalView) && (state?.status ?? "lobby") === "playing";
+  const snakes =
+    viewingPersonal && personalView ? personalView.snakes : liveSnakes;
   const foods =
     viewingPersonal && personalView
       ? personalView.foods
@@ -520,32 +543,36 @@ export function VersusBoard({
     viewingPersonal && personalView
       ? personalView.shots
       : (state?.shots ?? EMPTY_SHOTS);
-  const status = state?.status ?? 'lobby';
-  const slowMo = status === 'replay' || viewingPersonal;
-  const seated = players.length > 0 ? players : snakes.map((snake, index) => ({
-    id: snake.id,
-    name: snake.name,
-    color: snake.color,
-    host: index === 0,
-    ready: false,
-    joinedAt: index,
-  }));
+  const status = state?.status ?? "lobby";
+  const slowMo = status === "replay" || viewingPersonal;
+  const seated =
+    players.length > 0
+      ? players
+      : snakes.map((snake, index) => ({
+          id: snake.id,
+          name: snake.name,
+          color: snake.color,
+          host: index === 0,
+          ready: false,
+          joinedAt: index,
+        }));
   const readyCount = seated.filter((player) => player.ready).length;
-  const waitingOnReady = status !== 'playing' && status !== 'replay';
-  const connected = link === 'connected';
+  const waitingOnReady = status !== "playing" && status !== "replay";
+  const connected = link === "connected";
   const canReady = connected && !error && waitingOnReady;
   const you = seated.find((player) => player.id === youId);
-  const watchingOut =
-    youOut && (status === 'playing' || status === 'replay');
+  const watchingOut = youOut && (status === "playing" || status === "replay");
   const takenColors = new Set(
-    seated.filter((player) => player.id !== youId).map((player) => player.color),
+    seated
+      .filter((player) => player.id !== youId)
+      .map((player) => player.color),
   );
   const deathLine =
     viewingPersonal && personalView
       ? describeDeaths(personalView.deaths, snakes)
       : state && state.lastDeaths.length > 0
         ? describeDeaths(state.lastDeaths, liveSnakes)
-        : '';
+        : "";
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const paint = () => {
@@ -553,8 +580,8 @@ export function VersusBoard({
     if (!canvas) {
       return;
     }
-    if (status === 'lobby') {
-      const ctx = canvas.getContext('2d');
+    if (status === "lobby") {
+      const ctx = canvas.getContext("2d");
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
@@ -586,8 +613,8 @@ export function VersusBoard({
       <LevelBar>
         <LevelLabel>
           {slowMo
-            ? 'Slow-mo'
-            : status === 'playing' || status === 'over'
+            ? "Slow-mo"
+            : status === "playing" || status === "over"
               ? `Round ${mpRound(liveSnakes)}`
               : `Versus ${seated.length}/4`}
         </LevelLabel>
@@ -596,9 +623,9 @@ export function VersusBoard({
           <MuteButton
             type="button"
             onClick={onToggleMute}
-            aria-label={muted ? 'Unmute' : 'Mute'}
+            aria-label={muted ? "Unmute" : "Mute"}
           >
-            {muted ? 'Muted' : 'Sound'}
+            {muted ? "Muted" : "Sound"}
           </MuteButton>
         </BarRight>
       </LevelBar>
@@ -622,7 +649,10 @@ export function VersusBoard({
               </Action>
             </SpectateBar>
           ) : null}
-          {!error && !watchingOut && deathLine && (status === 'playing' || status === 'replay') ? (
+          {!error &&
+          !watchingOut &&
+          deathLine &&
+          (status === "playing" || status === "replay") ? (
             <DeathHint $replay={slowMo}>{deathLine}</DeathHint>
           ) : null}
 
@@ -632,27 +662,37 @@ export function VersusBoard({
               <OverlayHint>{error}</OverlayHint>
             </Overlay>
           ) : null}
-          {!error && link === 'connecting' && !state ? (
+          {!error && link === "connecting" && !state ? (
             <Overlay>
               Linking
               <OverlayHint>Joining room…</OverlayHint>
             </Overlay>
           ) : null}
-          {!error && link === 'reconnecting' && (status === 'playing' || status === 'replay') ? (
+          {!error &&
+          link === "reconnecting" &&
+          (status === "playing" || status === "replay") ? (
             <LinkHint>Reconnecting…</LinkHint>
           ) : null}
-          {!error && !ai && status === 'lobby' && (connected || link === 'reconnecting') ? (
+          {!error &&
+          !ai &&
+          status === "lobby" &&
+          (connected || link === "reconnecting") ? (
             <Overlay>
               Room
               <RoomCode
                 readOnly
                 value={roomId}
                 aria-label="Room id"
-                onFocus={(event) => { event.currentTarget.select(); }}
-                onClick={(event) => { event.currentTarget.select(); }}
+                onFocus={(event) => {
+                  event.currentTarget.select();
+                }}
+                onClick={(event) => {
+                  event.currentTarget.select();
+                }}
               />
               <OverlayHint>
-                {seated.length}/4 · {readyCount} ready · {isHost ? 'Host' : 'Guest'}
+                {seated.length}/4 · {readyCount} ready ·{" "}
+                {isHost ? "Host" : "Guest"}
               </OverlayHint>
               {you ? (
                 <ColorPicker
@@ -662,33 +702,47 @@ export function VersusBoard({
                   onChange={onChangeColor}
                 />
               ) : null}
-              {link === 'reconnecting' ? (
+              {link === "reconnecting" ? (
                 <OverlayHint>Reconnecting…</OverlayHint>
               ) : null}
               <Action type="button" onClick={onCopyId}>
-                {copied ? 'Copied' : 'Copy room id'}
+                {copied ? "Copied" : "Copy room id"}
               </Action>
               {canReady ? (
                 <Action type="button" onClick={onReady}>
-                  {ready ? 'Unready' : 'Ready'}
+                  {ready ? "Unready" : "Ready"}
                 </Action>
               ) : null}
               <OverlayHint>
                 {seated.length < 2
-                  ? 'Need 2 players'
+                  ? "Need 2 players"
                   : readyCount < seated.length
-                    ? 'Everyone must ready'
-                    : 'Starting…'}
+                    ? "Everyone must ready"
+                    : "Starting…"}
               </OverlayHint>
             </Overlay>
           ) : null}
-          {!error && status === 'over' ? (
+          {!error && status === "over" ? (
             <Overlay>
               {state?.hostLeft && !ai
-                ? 'Host left'
+                ? "Host left"
                 : state
                   ? winnerName(state)
-                  : 'Over'}
+                  : "Over"}
+              {state ? (
+                <Standings>
+                  {roundStandings(state.snakes).map((snake, index) => (
+                    <StandingRow key={snake.id}>
+                      <span>
+                        {index + 1}. {snake.name}
+                        {snake.id === youId ? " · you" : ""}
+                        {state.winnerId === snake.id ? " · win" : ""}
+                      </span>
+                      <span>{snake.score}</span>
+                    </StandingRow>
+                  ))}
+                </Standings>
+              ) : null}
               {deathLine ? <OverlayHint>{deathLine}</OverlayHint> : null}
               {state && hasSlowMoClip(state) && onReplay ? (
                 <Action type="button" onClick={onReplay}>
@@ -706,7 +760,7 @@ export function VersusBoard({
                 <>
                   <OverlayHint>
                     {seated.length < 2
-                      ? 'Need 2 players'
+                      ? "Need 2 players"
                       : `${readyCount}/${seated.length} ready`}
                   </OverlayHint>
                   {you && canReady ? (
@@ -718,7 +772,7 @@ export function VersusBoard({
                   ) : null}
                   {canReady ? (
                     <Action type="button" onClick={onReady}>
-                      {ready ? 'Unready' : 'Ready'}
+                      {ready ? "Unready" : "Ready"}
                     </Action>
                   ) : null}
                 </>
@@ -738,35 +792,46 @@ export function VersusBoard({
                   <Swatch $color={player.color} />
                   <Name>
                     {player.name}
-                    {player.id === youId ? ' · you' : ''}
-                    {!ai && player.host ? ' · host' : ''}
-                    {status === 'playing' || status === 'replay' || status === 'over'
+                    {player.id === youId ? " · you" : ""}
+                    {!ai && player.host ? " · host" : ""}
+                    {status === "playing" ||
+                    status === "replay" ||
+                    status === "over"
                       ? snake?.alive
-                        ? ''
-                        : ' · blocks'
+                        ? ""
+                        : " · blocks"
                       : player.ready
-                        ? ' · ready'
-                        : ''}
+                        ? " · ready"
+                        : ""}
                   </Name>
                 </RosterName>
                 <RosterMeta>
-                  {status === 'playing' || status === 'replay' || status === 'over' ? (
-                    <PowerBar aria-label={`${player.name} power ${snake?.power ?? 0}`}>
-                      {Array.from({length: MP_POWER_COST}, (_, index) => (
+                  {status === "playing" ||
+                  status === "replay" ||
+                  status === "over" ? (
+                    <PowerBar
+                      aria-label={`${player.name} power ${snake?.power ?? 0}`}
+                    >
+                      {Math.floor((snake?.power ?? 0) / MP_POWER_COST) > 0 ? (
+                        <PowerCount>
+                          ×{Math.floor((snake?.power ?? 0) / MP_POWER_COST)}
+                        </PowerCount>
+                      ) : null}
+                      {Array.from({ length: MP_POWER_COST }, (_, index) => (
                         <PowerTick
                           key={index}
                           $color={player.color}
-                          $on={(snake?.power ?? 0) > index}
+                          $on={(snake?.power ?? 0) % MP_POWER_COST > index}
                         />
                       ))}
                     </PowerBar>
                   ) : null}
                   <span>
-                    {status === 'lobby'
+                    {status === "lobby"
                       ? player.ready
-                        ? 'Ready'
-                        : 'Wait'
-                      : (snake?.score ?? '')}
+                        ? "Ready"
+                        : "Wait"
+                      : (snake?.score ?? "")}
                   </span>
                 </RosterMeta>
               </RosterRow>

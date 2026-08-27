@@ -8,10 +8,12 @@ import {
   beginReplay,
   createMpLobby,
   createPlayerId,
+  keepLocalIntent,
   killPlayer,
   markHostLeft,
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
+  MP_TICK_MS,
   type MpDeath,
   type MpPlayer,
   type MpSnapshot,
@@ -109,7 +111,6 @@ export function useMultiplayerRoom(
   const localReplayRef = useRef(false);
   const lastHostAtRef = useRef(0);
   const lastHostTickRef = useRef(-1);
-  const lastGuestTickRef = useRef(0);
   const [personalReplay, setPersonalReplay] = useState<{
     frames: MpSnapshot[];
     index: number;
@@ -232,8 +233,9 @@ export function useMultiplayerRoom(
           }
           lastHostTickRef.current = next.tick;
           lastHostAtRef.current = performance.now();
-          stateRef.current = next;
-          setState(next);
+          const applied = keepLocalIntent(next, current, identity.playerId);
+          stateRef.current = applied;
+          setState(applied);
           if (next.status === "playing") {
             clearReadyRef.current();
           }
@@ -284,7 +286,6 @@ export function useMultiplayerRoom(
     personalReplayRef.current = false;
     lastHostAtRef.current = 0;
     lastHostTickRef.current = -1;
-    lastGuestTickRef.current = 0;
     setPersonalReplay(null);
   }, [roomId]);
 
@@ -440,7 +441,6 @@ export function useMultiplayerRoom(
     if (isHost || state?.status !== "playing") {
       return;
     }
-    lastGuestTickRef.current = performance.now();
     const id = window.setInterval(() => {
       if (isHostRef.current) {
         return;
@@ -449,17 +449,13 @@ export function useMultiplayerRoom(
       if (current?.status !== "playing") {
         return;
       }
-      const delay = mpTickMs(current);
-      const now = performance.now();
-      const last = Math.max(lastHostAtRef.current, lastGuestTickRef.current);
-      if (now - last < delay) {
+      if (performance.now() - lastHostAtRef.current < MP_TICK_MS) {
         return;
       }
-      lastGuestTickRef.current = now;
       const next = tickMp(current);
       stateRef.current = next;
       setState(next);
-    }, 32);
+    }, MP_TICK_MS);
     return () => {
       window.clearInterval(id);
     };
@@ -568,7 +564,7 @@ export function useMultiplayerRoom(
 
   const replaySlowMo = useCallback(() => {
     const current = stateRef.current;
-    if (!current || current.status !== "over" || current.replay.length === 0) {
+    if (current?.status !== "over" || current.replay.length === 0) {
       return;
     }
     localReplayRef.current = true;
