@@ -236,4 +236,33 @@ describe('chooseAiAction', () => {
     }));
     expect(chooseAiAction(state, 'hex').dir).toBe('up');
   });
+
+  it('peels off a wall toward the middle instead of running the border', () => {
+    const state = place(TWO, (playing) => ({
+      ...playing,
+      foods: [{x: 14, y: 12}],
+      snakes: [
+        {
+          ...playing.snakes[0],
+          body: [
+            {x: 20, y: 20},
+            {x: 21, y: 20},
+            {x: 22, y: 20},
+          ],
+        },
+        {
+          ...playing.snakes[1],
+          id: 'hex',
+          direction: 'down',
+          pending: 'down',
+          body: [
+            {x: 0, y: 10},
+            {x: 0, y: 9},
+            {x: 0, y: 8},
+          ],
+        },
+      ],
+    }));
+    expect(chooseAiAction(state, 'hex').dir).toBe('right');
+  });
 });

@@ -274,6 +274,29 @@ function preferredFood(
   return pick;
 }
 
+function edgeMargin(point: Point): number {
+  return Math.min(
+    point.x,
+    point.y,
+    MP_GRID_WIDTH - 1 - point.x,
+    MP_GRID_HEIGHT - 1 - point.y,
+  );
+}
+
+function edgeCost(point: Point): number {
+  const margin = edgeMargin(point);
+  if (margin <= 0) {
+    return 1_600;
+  }
+  if (margin === 1) {
+    return 700;
+  }
+  if (margin === 2) {
+    return 220;
+  }
+  return 0;
+}
+
 function projectedHeads(state: MpState, selfId: string): {
   contested: Set<string>;
   cuts: Set<string>;
@@ -324,7 +347,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     const foodDist = goal ? bfsDist(next, [goal], blocked) : INF;
     const spawn = shotSpawn(head, dir);
     const hit = rayHit(spawn, dir, state, self.id);
-    let score = space;
+    let score = space + edgeMargin(next) * 25 - edgeCost(next);
     const closeFood = foodDist <= 6;
     const grabFood = closeFood || state.tick % 5 !== 1;
     if (grabFood && foodDist < INF) {
