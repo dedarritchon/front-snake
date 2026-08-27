@@ -1,24 +1,26 @@
-import {REALTIME_SUBSCRIBE_STATES} from '@supabase/realtime-js';
-import type {RealtimeChannel} from '@supabase/supabase-js';
+import { REALTIME_SUBSCRIBE_STATES } from "@supabase/realtime-js";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
-import {isDirection} from '../game/engine';
+import { isDirection } from "../game/engine";
 import {
+  fromWireState,
   MP_MAX_PLAYERS,
   type MpPlayer,
   type MpState,
+  type MpWireState,
   toWireState,
-} from '../game/multiplayerEngine';
+} from "../game/multiplayerEngine";
 import {
   assignUniqueColors,
   DEFAULT_SNAKE_COLOR,
   isSnakeColor,
-} from '../game/snakeColors';
-import type {Direction} from '../game/types';
-import {snakeSupabase} from './supabase';
+} from "../game/snakeColors";
+import type { Direction } from "../game/types";
+import { snakeSupabase } from "./supabase";
 
 export const PRESENCE_GRACE_MS = 4000;
 
-export type RoomLink = 'connecting' | 'connected' | 'reconnecting';
+export type RoomLink = "connecting" | "connected" | "reconnecting";
 
 export interface PresenceMeta {
   playerId: string;
@@ -30,8 +32,8 @@ export interface PresenceMeta {
 }
 
 export type RoomInput =
-  | {playerId: string; kind: 'dir'; dir: Direction}
-  | {playerId: string; kind: 'fire'};
+  | { playerId: string; kind: "dir"; dir: Direction }
+  | { playerId: string; kind: "fire" };
 
 export interface RoomHandlers {
   onState: (state: MpState) => void;
@@ -43,28 +45,28 @@ export interface RoomHandlers {
 }
 
 export function parseRoomInput(payload: unknown): RoomInput | null {
-  if (typeof payload !== 'object' || payload === null) {
+  if (typeof payload !== "object" || payload === null) {
     return null;
   }
-  const body = payload as {playerId?: unknown; dir?: unknown; fire?: unknown};
-  if (typeof body.playerId !== 'string') {
+  const body = payload as { playerId?: unknown; dir?: unknown; fire?: unknown };
+  if (typeof body.playerId !== "string") {
     return null;
   }
   if (body.fire === true) {
-    return {playerId: body.playerId, kind: 'fire'};
+    return { playerId: body.playerId, kind: "fire" };
   }
   if (!isDirection(body.dir)) {
     return null;
   }
-  return {playerId: body.playerId, kind: 'dir', dir: body.dir};
+  return { playerId: body.playerId, kind: "dir", dir: body.dir };
 }
 
 function parseMeta(value: unknown): PresenceMeta | null {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== "object" || value === null) {
     return null;
   }
   const row = value as Record<string, unknown>;
-  if (typeof row.playerId !== 'string' || typeof row.name !== 'string') {
+  if (typeof row.playerId !== "string" || typeof row.name !== "string") {
     return null;
   }
   return {
@@ -73,7 +75,7 @@ function parseMeta(value: unknown): PresenceMeta | null {
     color: isSnakeColor(row.color) ? row.color : DEFAULT_SNAKE_COLOR,
     host: row.host === true,
     ready: row.ready === true,
-    joinedAt: typeof row.joinedAt === 'number' ? row.joinedAt : 0,
+    joinedAt: typeof row.joinedAt === "number" ? row.joinedAt : 0,
   };
 }
 
@@ -114,7 +116,7 @@ export function holdRoster(
   incoming: MpPlayer[],
   now: number,
   missingSince: Map<string, number>,
-): {players: MpPlayer[]; missingSince: Map<string, number>} {
+): { players: MpPlayer[]; missingSince: Map<string, number> } {
   const live = new Map(incoming.map((player) => [player.id, player]));
   const nextMissing = new Map<string, number>();
   const byId = new Map<string, MpPlayer>();
@@ -140,17 +142,17 @@ export function holdRoster(
   };
 }
 
-const identities = new Map<string, {playerId: string; joinedAt: number}>();
+const identities = new Map<string, { playerId: string; joinedAt: number }>();
 
 export function roomIdentity(
   roomId: string,
   mintId: () => string,
-): {playerId: string; joinedAt: number} {
+): { playerId: string; joinedAt: number } {
   const existing = identities.get(roomId);
   if (existing) {
     return existing;
   }
-  const created = {playerId: mintId(), joinedAt: Date.now()};
+  const created = { playerId: mintId(), joinedAt: Date.now() };
   identities.set(roomId, created);
   return created;
 }
@@ -166,7 +168,7 @@ export class MultiplayerRoom {
   private previous: MpPlayer[] = [];
   private missingSince = new Map<string, number>();
   private generation = 0;
-  private pendingState: MpState | null = null;
+  private pendingState: MpWireState | null = null;
   private sendingState = false;
 
   constructor(roomId: string, self: PresenceMeta, handlers: RoomHandlers) {
@@ -182,12 +184,12 @@ export class MultiplayerRoom {
   }
 
   async setReady(ready: boolean): Promise<void> {
-    this.self = {...this.self, ready};
+    this.self = { ...this.self, ready };
     await this.channel?.track(this.self);
   }
 
   async setHost(host: boolean): Promise<void> {
-    this.self = {...this.self, host};
+    this.self = { ...this.self, host };
     await this.channel?.track(this.self);
   }
 
@@ -195,7 +197,7 @@ export class MultiplayerRoom {
     if (this.self.name === name) {
       return;
     }
-    this.self = {...this.self, name};
+    this.self = { ...this.self, name };
     await this.channel?.track(this.self);
   }
 
@@ -203,7 +205,7 @@ export class MultiplayerRoom {
     if (this.self.color === color || !isSnakeColor(color)) {
       return;
     }
-    this.self = {...this.self, color};
+    this.self = { ...this.self, color };
     await this.channel?.track(this.self);
   }
 
@@ -213,54 +215,56 @@ export class MultiplayerRoom {
 
   sendInput(dir: Direction): void {
     void this.channel?.send({
-      type: 'broadcast',
-      event: 'input',
-      payload: {playerId: this.self.playerId, dir},
+      type: "broadcast",
+      event: "input",
+      payload: { playerId: this.self.playerId, dir },
     });
   }
 
   sendFire(): void {
     void this.channel?.send({
-      type: 'broadcast',
-      event: 'input',
-      payload: {playerId: this.self.playerId, fire: true},
+      type: "broadcast",
+      event: "input",
+      payload: { playerId: this.self.playerId, fire: true },
     });
   }
 
   sendStart(seed: number): void {
     void this.channel?.send({
-      type: 'broadcast',
-      event: 'start',
-      payload: {seed},
+      type: "broadcast",
+      event: "start",
+      payload: { seed },
     });
   }
 
   sendState(state: MpState): void {
     this.pendingState = toWireState(state);
-    void this.flushState();
+    this.flushState();
   }
 
-  private async flushState(): Promise<void> {
-    if (this.sendingState) {
+  private flushState(): void {
+    if (
+      this.sendingState ||
+      !this.pendingState ||
+      !this.channel ||
+      this.closed
+    ) {
       return;
     }
     this.sendingState = true;
-    try {
-      while (this.pendingState && this.channel && !this.closed) {
-        const payload = this.pendingState;
-        this.pendingState = null;
-        await this.channel.send({
-          type: 'broadcast',
-          event: 'state',
-          payload,
-        });
-      }
-    } finally {
+    const payload = this.pendingState;
+    this.pendingState = null;
+    const sent = this.channel.send({
+      type: "broadcast",
+      event: "state",
+      payload,
+    });
+    void Promise.resolve(sent).finally(() => {
       this.sendingState = false;
-      if (this.pendingState && this.channel && !this.closed) {
-        void this.flushState();
+      if (this.pendingState) {
+        this.flushState();
       }
-    }
+    });
   }
 
   async disconnect(): Promise<void> {
@@ -274,7 +278,7 @@ export class MultiplayerRoom {
   }
 
   private readonly onVisible = (): void => {
-    if (this.closed || document.visibilityState !== 'visible') {
+    if (this.closed || document.visibilityState !== "visible") {
       return;
     }
     if (this.channel) {
@@ -294,18 +298,18 @@ export class MultiplayerRoom {
       return;
     }
     this.retry = 0;
-    this.handlers.onLink('reconnecting');
+    this.handlers.onLink("reconnecting");
     void this.openChannel();
   };
 
   private bindWindow(): void {
-    document.addEventListener('visibilitychange', this.onVisible);
-    window.addEventListener('online', this.onOnline);
+    document.addEventListener("visibilitychange", this.onVisible);
+    window.addEventListener("online", this.onOnline);
   }
 
   private unbindWindow(): void {
-    document.removeEventListener('visibilitychange', this.onVisible);
-    window.removeEventListener('online', this.onOnline);
+    document.removeEventListener("visibilitychange", this.onVisible);
+    window.removeEventListener("online", this.onOnline);
   }
 
   private async tearChannel(): Promise<void> {
@@ -323,7 +327,7 @@ export class MultiplayerRoom {
     if (this.closed || this.reconnectTimer !== null) {
       return;
     }
-    this.handlers.onLink('reconnecting');
+    this.handlers.onLink("reconnecting");
     const delay = Math.min(1000 * 2 ** this.retry, 8000);
     this.retry += 1;
     this.reconnectTimer = window.setTimeout(() => {
@@ -369,25 +373,28 @@ export class MultiplayerRoom {
     const supabase = snakeSupabase();
     const channel = supabase.channel(`snake-room:${this.roomId}`, {
       config: {
-        presence: {key: this.self.playerId},
-        broadcast: {self: false},
+        presence: { key: this.self.playerId },
+        broadcast: { self: false, ack: false },
       },
     });
 
     channel
-      .on('presence', {event: 'sync'}, () => {
+      .on("presence", { event: "sync" }, () => {
         if (this.channel !== channel) {
           return;
         }
         this.emitRoster(channel);
       })
-      .on('broadcast', {event: 'state'}, ({payload}) => {
+      .on("broadcast", { event: "state" }, ({ payload }) => {
         if (this.channel !== channel) {
           return;
         }
-        this.handlers.onState(payload as MpState);
+        const state = fromWireState(payload);
+        if (state) {
+          this.handlers.onState(state);
+        }
       })
-      .on('broadcast', {event: 'input'}, ({payload}) => {
+      .on("broadcast", { event: "input" }, ({ payload }) => {
         if (this.channel !== channel) {
           return;
         }
@@ -397,12 +404,12 @@ export class MultiplayerRoom {
         }
         this.handlers.onInput(input);
       })
-      .on('broadcast', {event: 'start'}, ({payload}) => {
+      .on("broadcast", { event: "start" }, ({ payload }) => {
         if (this.channel !== channel) {
           return;
         }
-        const seed = (payload as {seed?: unknown}).seed;
-        if (typeof seed === 'number') {
+        const seed = (payload as { seed?: unknown }).seed;
+        if (typeof seed === "number") {
           this.handlers.onStart(seed);
         }
       });
@@ -418,7 +425,7 @@ export class MultiplayerRoom {
           if (this.closed || this.channel !== channel) {
             return;
           }
-          this.handlers.onLink('connected');
+          this.handlers.onLink("connected");
           this.handlers.onResynced();
         });
         return;

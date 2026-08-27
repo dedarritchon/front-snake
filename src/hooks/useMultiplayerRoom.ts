@@ -1,7 +1,7 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import {snakeAudio} from '../audio/snakeAudio';
-import {isDirection, randomSeed} from '../game/engine';
+import { snakeAudio } from "../audio/snakeAudio";
+import { isDirection, randomSeed } from "../game/engine";
 import {
   advanceReplay,
   allReadyToStart,
@@ -12,11 +12,11 @@ import {
   markHostLeft,
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
-  MP_TICK_MS,
   type MpDeath,
   type MpPlayer,
   type MpSnapshot,
   type MpState,
+  mpTickMs,
   queueMpFire,
   queueMpInput,
   shouldPersonalSlowMo,
@@ -24,18 +24,18 @@ import {
   snapshotMp,
   startMp,
   tickMp,
-} from '../game/multiplayerEngine';
+} from "../game/multiplayerEngine";
 import {
   isSnakeColor,
   loadPreferredColor,
   savePreferredColor,
-} from '../game/snakeColors';
-import type {Direction} from '../game/types';
+} from "../game/snakeColors";
+import type { Direction } from "../game/types";
 import {
   MultiplayerRoom,
   roomIdentity,
   type RoomLink,
-} from '../snakeClient/multiplayer';
+} from "../snakeClient/multiplayer";
 
 export function useMultiplayerRoom(
   roomId: string,
@@ -49,7 +49,7 @@ export function useMultiplayerRoom(
   const [isHost, setIsHost] = useState(claimHost);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [link, setLink] = useState<RoomLink>('connecting');
+  const [link, setLink] = useState<RoomLink>("connecting");
 
   const stateRef = useRef(state);
   const isHostRef = useRef(isHost);
@@ -109,6 +109,7 @@ export function useMultiplayerRoom(
   const localReplayRef = useRef(false);
   const lastHostAtRef = useRef(0);
   const lastHostTickRef = useRef(-1);
+  const lastGuestTickRef = useRef(0);
   const [personalReplay, setPersonalReplay] = useState<{
     frames: MpSnapshot[];
     index: number;
@@ -132,7 +133,7 @@ export function useMultiplayerRoom(
         onLink: (next) => {
           if (!cancelled) {
             setLink(next);
-            if (next === 'connected') {
+            if (next === "connected") {
               setError(null);
             }
           }
@@ -159,12 +160,12 @@ export function useMultiplayerRoom(
             void room.setColor(mine.color);
           }
           const current = stateRef.current;
-          const playing = current?.status === 'playing';
+          const playing = current?.status === "playing";
           const nowHost =
             hostId === identity.playerId ||
             (!hostId &&
               !playing &&
-              current?.status !== 'over' &&
+              current?.status !== "over" &&
               nextPlayers[0]?.id === identity.playerId);
           if (nowHost && !isHostRef.current) {
             void room.setHost(true);
@@ -173,11 +174,11 @@ export function useMultiplayerRoom(
           setIsHost(nowHost);
 
           if (nowHost) {
-            if (!current || current.status === 'lobby') {
+            if (!current || current.status === "lobby") {
               publishRef.current(
                 createMpLobby(nextPlayers, current?.seed ?? randomSeed()),
               );
-            } else if (current.status === 'playing') {
+            } else if (current.status === "playing") {
               let next = current;
               for (const snake of current.snakes) {
                 if (
@@ -193,7 +194,11 @@ export function useMultiplayerRoom(
             }
             if (allReadyToStart(nextPlayers)) {
               const latest = stateRef.current;
-              if (!latest || latest.status === 'lobby' || latest.status === 'over') {
+              if (
+                !latest ||
+                latest.status === "lobby" ||
+                latest.status === "over"
+              ) {
                 beginMatchRef.current();
               }
             }
@@ -203,7 +208,7 @@ export function useMultiplayerRoom(
           if (
             !hostId &&
             current &&
-            (current.status === 'playing' || current.status === 'lobby')
+            (current.status === "playing" || current.status === "lobby")
           ) {
             const left = markHostLeft(current);
             stateRef.current = left;
@@ -214,7 +219,7 @@ export function useMultiplayerRoom(
           if (cancelled || isHostRef.current) {
             return;
           }
-          if (localReplayRef.current && next.status === 'over') {
+          if (localReplayRef.current && next.status === "over") {
             return;
           }
           localReplayRef.current = false;
@@ -229,7 +234,7 @@ export function useMultiplayerRoom(
           lastHostAtRef.current = performance.now();
           stateRef.current = next;
           setState(next);
-          if (next.status === 'playing') {
+          if (next.status === "playing") {
             clearReadyRef.current();
           }
         },
@@ -242,7 +247,7 @@ export function useMultiplayerRoom(
             return;
           }
           const next =
-            input.kind === 'fire'
+            input.kind === "fire"
               ? queueMpFire(current, input.playerId)
               : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
@@ -258,7 +263,7 @@ export function useMultiplayerRoom(
     roomRef.current = room;
     void room.connect().catch(() => {
       if (!cancelled) {
-        setError('Could not join room');
+        setError("Could not join room");
       }
     });
 
@@ -279,6 +284,7 @@ export function useMultiplayerRoom(
     personalReplayRef.current = false;
     lastHostAtRef.current = 0;
     lastHostTickRef.current = -1;
+    lastGuestTickRef.current = 0;
     setPersonalReplay(null);
   }, [roomId]);
 
@@ -299,11 +305,8 @@ export function useMultiplayerRoom(
         deaths: state.lastDeaths.filter((death) => death.playerId === me),
       });
     }
-    if (state?.status === 'playing') {
-      if (
-        previous?.status !== 'playing' ||
-        previous.tick !== state.tick
-      ) {
+    if (state?.status === "playing") {
+      if (previous?.status !== "playing" || previous.tick !== state.tick) {
         historyRef.current = [
           ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
           snapshotMp(state),
@@ -311,9 +314,9 @@ export function useMultiplayerRoom(
       }
     }
     if (
-      state?.status === 'replay' ||
-      state?.status === 'over' ||
-      state?.status === 'lobby'
+      state?.status === "replay" ||
+      state?.status === "over" ||
+      state?.status === "lobby"
     ) {
       personalReplayRef.current = false;
       setPersonalReplay(null);
@@ -326,7 +329,7 @@ export function useMultiplayerRoom(
     if (!personalReplay) {
       return;
     }
-    if (state?.status === 'replay' || state?.status === 'over') {
+    if (state?.status === "replay" || state?.status === "over") {
       return;
     }
     const id = window.setInterval(() => {
@@ -338,7 +341,7 @@ export function useMultiplayerRoom(
           personalReplayRef.current = false;
           return null;
         }
-        return {...current, index: current.index + 1};
+        return { ...current, index: current.index + 1 };
       });
     }, MP_REPLAY_TICK_MS);
     return () => {
@@ -348,8 +351,8 @@ export function useMultiplayerRoom(
 
   useEffect(() => {
     const hostLive =
-      isHost && (state?.status === 'playing' || state?.status === 'replay');
-    const localClip = state?.status === 'replay' && localReplayRef.current;
+      isHost && (state?.status === "playing" || state?.status === "replay");
+    const localClip = state?.status === "replay" && localReplayRef.current;
     if (!hostLive && !localClip) {
       return;
     }
@@ -359,28 +362,25 @@ export function useMultiplayerRoom(
       const current = stateRef.current;
       if (
         !current ||
-        (current.status !== 'playing' && current.status !== 'replay')
+        (current.status !== "playing" && current.status !== "replay")
       ) {
         frame = window.requestAnimationFrame(step);
         return;
       }
-      const delay =
-        current.status === 'replay' ? MP_REPLAY_TICK_MS : MP_TICK_MS;
+      const delay = mpTickMs(current);
       let next = current;
       let ate = false;
       let died = false;
-      let ticks = 0;
       while (now - last >= delay) {
         last += delay;
-        ticks += 1;
-        if (next.status === 'replay') {
+        if (next.status === "replay") {
           next = advanceReplay(next);
-          if (next.status === 'over') {
+          if (next.status === "over") {
             localReplayRef.current = false;
           }
           break;
         }
-        if (next.status !== 'playing') {
+        if (next.status !== "playing") {
           break;
         }
         const after = tickMp(next);
@@ -437,36 +437,41 @@ export function useMultiplayerRoom(
   }, [isHost, publish, state?.status]);
 
   useEffect(() => {
-    if (isHost || state?.status !== 'playing') {
+    if (isHost || state?.status !== "playing") {
       return;
     }
+    lastGuestTickRef.current = performance.now();
     const id = window.setInterval(() => {
       if (isHostRef.current) {
         return;
       }
       const current = stateRef.current;
-      if (!current || current.status !== 'playing') {
+      if (current?.status !== "playing") {
         return;
       }
-      if (performance.now() - lastHostAtRef.current < MP_TICK_MS) {
+      const delay = mpTickMs(current);
+      const now = performance.now();
+      const last = Math.max(lastHostAtRef.current, lastGuestTickRef.current);
+      if (now - last < delay) {
         return;
       }
+      lastGuestTickRef.current = now;
       const next = tickMp(current);
       stateRef.current = next;
       setState(next);
-    }, MP_TICK_MS);
+    }, 32);
     return () => {
       window.clearInterval(id);
     };
   }, [isHost, state?.status]);
 
   useEffect(() => {
-    if (state?.status === 'playing' || state?.status === 'replay') {
-      snakeAudio.syncStatus('playing');
-    } else if (state?.status === 'over') {
-      snakeAudio.syncStatus('gameover');
+    if (state?.status === "playing" || state?.status === "replay") {
+      snakeAudio.syncStatus("playing");
+    } else if (state?.status === "over") {
+      snakeAudio.syncStatus("gameover");
     } else {
-      snakeAudio.syncStatus('ready');
+      snakeAudio.syncStatus("ready");
     }
   }, [state?.status]);
 
@@ -480,7 +485,11 @@ export function useMultiplayerRoom(
       if (!current) {
         return;
       }
-      const next = queueMpInput(current, identityRef.current.playerId, direction);
+      const next = queueMpInput(
+        current,
+        identityRef.current.playerId,
+        direction,
+      );
       const changed = next.snakes.some(
         (snake, index) => snake.pending !== current.snakes[index].pending,
       );
@@ -490,7 +499,7 @@ export function useMultiplayerRoom(
       stateRef.current = next;
       return;
     }
-    if (stateRef.current?.status !== 'playing') {
+    if (stateRef.current?.status !== "playing") {
       return;
     }
     snakeAudio.playMove(direction);
@@ -512,13 +521,10 @@ export function useMultiplayerRoom(
       if (!current) {
         return;
       }
-      stateRef.current = queueMpFire(
-        current,
-        identityRef.current.playerId,
-      );
+      stateRef.current = queueMpFire(current, identityRef.current.playerId);
       return;
     }
-    if (stateRef.current?.status !== 'playing') {
+    if (stateRef.current?.status !== "playing") {
       return;
     }
     const current = stateRef.current;
@@ -530,8 +536,8 @@ export function useMultiplayerRoom(
   }, []);
 
   const toggleReady = useCallback(() => {
-    const status = stateRef.current?.status ?? 'lobby';
-    if (status === 'playing' || status === 'replay') {
+    const status = stateRef.current?.status ?? "lobby";
+    if (status === "playing" || status === "replay") {
       return;
     }
     const next = !readyRef.current;
@@ -541,8 +547,8 @@ export function useMultiplayerRoom(
   }, []);
 
   const setColor = useCallback((color: string) => {
-    const status = stateRef.current?.status ?? 'lobby';
-    if (status === 'playing' || status === 'replay') {
+    const status = stateRef.current?.status ?? "lobby";
+    if (status === "playing" || status === "replay") {
       return;
     }
     if (!isSnakeColor(color)) {
@@ -562,7 +568,7 @@ export function useMultiplayerRoom(
 
   const replaySlowMo = useCallback(() => {
     const current = stateRef.current;
-    if (!current || current.status !== 'over' || current.replay.length === 0) {
+    if (!current || current.status !== "over" || current.replay.length === 0) {
       return;
     }
     localReplayRef.current = true;
@@ -573,7 +579,7 @@ export function useMultiplayerRoom(
 
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
-    personalReplay && frame && state?.status === 'playing'
+    personalReplay && frame && state?.status === "playing"
       ? {
           snakes: frame.snakes,
           foods: frame.foods,
@@ -590,7 +596,7 @@ export function useMultiplayerRoom(
     ready,
     error,
     link,
-    connected: link === 'connected',
+    connected: link === "connected",
     personalView,
     sendDirection,
     sendFire,

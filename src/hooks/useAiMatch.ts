@@ -1,18 +1,18 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import {snakeAudio} from '../audio/snakeAudio';
-import {isDirection, randomSeed} from '../game/engine';
+import { snakeAudio } from "../audio/snakeAudio";
+import { isDirection, randomSeed } from "../game/engine";
 import {
   advanceReplay,
   beginReplay,
   createMpLobby,
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
-  MP_TICK_MS,
   type MpDeath,
   type MpPlayer,
   type MpSnapshot,
   type MpState,
+  mpTickMs,
   queueMpFire,
   queueMpInput,
   shouldPersonalSlowMo,
@@ -20,15 +20,15 @@ import {
   snapshotMp,
   startMp,
   tickMp,
-} from '../game/multiplayerEngine';
-import {loadPreferredColor} from '../game/snakeColors';
-import type {Direction} from '../game/types';
+} from "../game/multiplayerEngine";
+import { loadPreferredColor } from "../game/snakeColors";
+import type { Direction } from "../game/types";
 import {
   AI_YOU_ID,
   chooseAiAction,
   createAiPlayers,
   isAiId,
-} from '../game/versusAi';
+} from "../game/versusAi";
 
 function applyAi(state: MpState): MpState {
   let next = state;
@@ -47,7 +47,7 @@ function applyAi(state: MpState): MpState {
 
 export function useAiMatch(playerName: string) {
   const [players, setPlayers] = useState<MpPlayer[]>(() =>
-    createAiPlayers({name: playerName, color: loadPreferredColor()}),
+    createAiPlayers({ name: playerName, color: loadPreferredColor() }),
   );
   const [state, setState] = useState<MpState | null>(null);
   const stateRef = useRef(state);
@@ -103,18 +103,20 @@ export function useAiMatch(playerName: string) {
       setPersonalReplay({
         frames: [...historyRef.current, crash, crash, crash],
         index: 0,
-        deaths: state.lastDeaths.filter((death) => death.playerId === AI_YOU_ID),
+        deaths: state.lastDeaths.filter(
+          (death) => death.playerId === AI_YOU_ID,
+        ),
       });
     }
-    if (state?.status === 'playing') {
-      if (previous?.status !== 'playing' || previous.tick !== state.tick) {
+    if (state?.status === "playing") {
+      if (previous?.status !== "playing" || previous.tick !== state.tick) {
         historyRef.current = [
           ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
           snapshotMp(state),
         ];
       }
     }
-    if (state?.status === 'replay' || state?.status === 'over') {
+    if (state?.status === "replay" || state?.status === "over") {
       personalReplayRef.current = false;
       setPersonalReplay(null);
       historyRef.current = [];
@@ -131,7 +133,7 @@ export function useAiMatch(playerName: string) {
     if (!personalReplay) {
       return;
     }
-    if (state?.status === 'replay' || state?.status === 'over') {
+    if (state?.status === "replay" || state?.status === "over") {
       return;
     }
     const id = window.setInterval(() => {
@@ -143,7 +145,7 @@ export function useAiMatch(playerName: string) {
           personalReplayRef.current = false;
           return null;
         }
-        return {...current, index: current.index + 1};
+        return { ...current, index: current.index + 1 };
       });
     }, MP_REPLAY_TICK_MS);
     return () => {
@@ -152,7 +154,7 @@ export function useAiMatch(playerName: string) {
   }, [personalReplay !== null, state?.status]);
 
   useEffect(() => {
-    if (state?.status !== 'playing' && state?.status !== 'replay') {
+    if (state?.status !== "playing" && state?.status !== "replay") {
       return;
     }
     let last = performance.now();
@@ -161,25 +163,22 @@ export function useAiMatch(playerName: string) {
       const current = stateRef.current;
       if (
         !current ||
-        (current.status !== 'playing' && current.status !== 'replay')
+        (current.status !== "playing" && current.status !== "replay")
       ) {
         frame = window.requestAnimationFrame(step);
         return;
       }
-      const delay =
-        current.status === 'replay' ? MP_REPLAY_TICK_MS : MP_TICK_MS;
+      const delay = mpTickMs(current);
       let next = current;
       let ate = false;
       let died = false;
-      let ticks = 0;
       while (now - last >= delay) {
         last += delay;
-        ticks += 1;
-        if (next.status === 'replay') {
+        if (next.status === "replay") {
           next = advanceReplay(next);
           break;
         }
-        if (next.status !== 'playing') {
+        if (next.status !== "playing") {
           break;
         }
         const queued = applyAi(next);
@@ -233,12 +232,12 @@ export function useAiMatch(playerName: string) {
   }, [state?.status]);
 
   useEffect(() => {
-    if (state?.status === 'playing' || state?.status === 'replay') {
-      snakeAudio.syncStatus('playing');
-    } else if (state?.status === 'over') {
-      snakeAudio.syncStatus('gameover');
+    if (state?.status === "playing" || state?.status === "replay") {
+      snakeAudio.syncStatus("playing");
+    } else if (state?.status === "over") {
+      snakeAudio.syncStatus("gameover");
     } else {
-      snakeAudio.syncStatus('ready');
+      snakeAudio.syncStatus("ready");
     }
   }, [state?.status]);
 
@@ -275,7 +274,7 @@ export function useAiMatch(playerName: string) {
     if (!current) {
       return;
     }
-    if (current.status === 'playing' || current.status === 'replay') {
+    if (current.status === "playing" || current.status === "replay") {
       if (!eliminatedRef.current) {
         return;
       }
@@ -285,7 +284,7 @@ export function useAiMatch(playerName: string) {
 
   const replaySlowMo = useCallback(() => {
     const current = stateRef.current;
-    if (!current || current.status !== 'over' || current.replay.length === 0) {
+    if (!current || current.status !== "over" || current.replay.length === 0) {
       return;
     }
     const next = beginReplay(current, current.replay);
@@ -295,7 +294,7 @@ export function useAiMatch(playerName: string) {
 
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
-    personalReplay && frame && state?.status === 'playing'
+    personalReplay && frame && state?.status === "playing"
       ? {
           snakes: frame.snakes,
           foods: frame.foods,
