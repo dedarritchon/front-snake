@@ -208,10 +208,9 @@ describe('chooseAiAction', () => {
     expect(chooseAiAction(state, 'rom').fire).toBe(false);
   });
 
-  it('keeps rolling past a side apple while cruising', () => {
+  it('turns toward a close side apple', () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      tick: 5,
       foods: [{x: 5, y: 6}],
       snakes: [
         {
@@ -235,37 +234,6 @@ describe('chooseAiAction', () => {
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).toBe('right');
-  });
-
-  it('hunts a nearby head instead of a distant apple', () => {
-    const state = place(HUNT, (playing) => ({
-      ...playing,
-      foods: [{x: 0, y: 0}],
-      snakes: [
-        {
-          ...playing.snakes[0],
-          direction: 'left',
-          pending: 'left',
-          body: [
-            {x: 12, y: 10},
-            {x: 13, y: 10},
-            {x: 14, y: 10},
-          ],
-        },
-        {
-          ...playing.snakes[1],
-          id: 'rom',
-          direction: 'right',
-          pending: 'right',
-          body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
-          ],
-        },
-      ],
-    }));
-    expect(chooseAiAction(state, 'rom').dir).toBe('right');
+    expect(chooseAiAction(state, 'hex').dir).toBe('up');
   });
 });

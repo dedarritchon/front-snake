@@ -295,20 +295,6 @@ function projectedHeads(state: MpState, selfId: string): {
   return {contested, cuts};
 }
 
-function huntRange(state: MpState, selfId: string, next: Point): number {
-  let best = INF;
-  for (const snake of state.snakes) {
-    if (!snake.alive || snake.id === selfId || !snake.body[0]) {
-      continue;
-    }
-    const dist = manhattan(next, snake.body[0]);
-    if (dist < best) {
-      best = dist;
-    }
-  }
-  return best;
-}
-
 export function chooseAiAction(state: MpState, playerId: string): AiAction {
   const kind = aiKind(playerId) ?? 'farmer';
   const self = state.snakes.find((snake) => snake.id === playerId);
@@ -319,7 +305,6 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
   const head = self.body[0];
   const {contested, cuts} = projectedHeads(state, self.id);
   const goal = preferredFood(state, self, kind);
-  const chasing = state.tick % 8 < (kind === 'hunter' ? 6 : 5);
   let bestDir = self.direction;
   let bestScore = -INF;
 
@@ -339,28 +324,29 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     const foodDist = goal ? bfsDist(next, [goal], blocked) : INF;
     const spawn = shotSpawn(head, dir);
     const hit = rayHit(spawn, dir, state, self.id);
-    const prey = huntRange(state, self.id, next);
-    let score = space * 4;
+    let score = space;
+    const closeFood = foodDist <= 6;
+    const grabFood = closeFood || state.tick % 5 !== 1;
+    if (grabFood && foodDist < INF) {
+      score += 8_000 - foodDist * 20;
+    }
     if (dir === self.direction) {
-      score += 2_200;
-    }
-    if (chasing && foodDist < INF) {
-      score += kind === 'hunter' ? 2_400 - foodDist * 14 : 4_200 - foodDist * 18;
-    }
-    if (kind === 'hunter') {
-      score += 3_600 - Math.min(prey, 30) * 90;
-    } else if (kind === 'flanker') {
-      score += 1_400 - Math.min(prey, 30) * 35;
+      score += closeFood ? 8 : 280;
     }
     const nextKey = cellKey(next);
     if (contested.has(nextKey)) {
-      score += kind === 'hunter' ? -800 : -4_000;
+      score -= 4_000;
     }
-    if (cuts.has(nextKey)) {
-      score += kind === 'farmer' ? 800 : 3_200;
+    if (
+      kind !== 'farmer' &&
+      cuts.has(nextKey) &&
+      self.power >= MP_POWER_COST &&
+      !closeFood
+    ) {
+      score += 900;
     }
     if (hit === 'head' && self.power >= MP_POWER_COST) {
-      score += kind === 'hunter' ? 18_000 : kind === 'flanker' ? 10_000 : 4_000;
+      score += kind === 'hunter' ? 20_000 : 6_000;
     }
     if (score > bestScore) {
       bestScore = score;
@@ -370,8 +356,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
 
   const fireHit = rayHit(shotSpawn(head, bestDir), bestDir, state, self.id);
   const fire =
-    self.power >= MP_POWER_COST &&
-    (fireHit === 'head' || (kind !== 'hunter' && fireHit === 'food'));
+    self.power >= MP_POWER_COST && (fireHit === 'head' || fireHit === 'food');
 
   return {dir: bestDir, fire};
 }
