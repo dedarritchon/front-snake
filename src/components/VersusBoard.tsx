@@ -16,6 +16,7 @@ import {
 } from '../game/multiplayerEngine';
 import type {Point} from '../game/types';
 import type {RoomLink} from '../snakeClient/multiplayer';
+import {BuildMark} from './BuildMark';
 import {ColorPicker} from './ColorPicker';
 
 const LCD = {
@@ -58,6 +59,12 @@ const LevelBar = styled.div`
 const LevelLabel = styled.span`
   font-size: 8px;
   letter-spacing: 0.08em;
+`;
+
+const BarRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
 const MuteButton = styled.button`
@@ -584,13 +591,16 @@ export function VersusBoard({
               ? `Round ${mpRound(liveSnakes)}`
               : `Versus ${seated.length}/4`}
         </LevelLabel>
-        <MuteButton
-          type="button"
-          onClick={onToggleMute}
-          aria-label={muted ? 'Unmute' : 'Mute'}
-        >
-          {muted ? 'Muted' : 'Sound'}
-        </MuteButton>
+        <BarRight>
+          <BuildMark />
+          <MuteButton
+            type="button"
+            onClick={onToggleMute}
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? 'Muted' : 'Sound'}
+          </MuteButton>
+        </BarRight>
       </LevelBar>
 
       <BoardFrame>

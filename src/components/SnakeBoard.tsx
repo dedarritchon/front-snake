@@ -14,6 +14,7 @@ import type {
   LeaderboardBoard,
   SubmitRunResponse,
 } from '../snakeClient/leaderboard';
+import {BuildMark} from './BuildMark';
 import {ColorPicker} from './ColorPicker';
 import {Leaderboard} from './Leaderboard';
 
@@ -57,6 +58,12 @@ const LevelBar = styled.div`
 const LevelLabel = styled.span`
   font-size: 8px;
   letter-spacing: 0.08em;
+`;
+
+const BarRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
 const MuteButton = styled.button`
@@ -411,13 +418,16 @@ export function SnakeBoard({
     <Shell>
       <LevelBar>
         <LevelLabel>Level {gameLevel(score)}</LevelLabel>
-        <MuteButton
-          type="button"
-          onClick={onToggleMute}
-          aria-label={muted ? 'Unmute' : 'Mute'}
-        >
-          {muted ? 'Muted' : 'Sound'}
-        </MuteButton>
+        <BarRight>
+          <BuildMark />
+          <MuteButton
+            type="button"
+            onClick={onToggleMute}
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? 'Muted' : 'Sound'}
+          </MuteButton>
+        </BarRight>
       </LevelBar>
 
       <BoardFrame>
