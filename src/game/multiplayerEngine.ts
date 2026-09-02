@@ -19,6 +19,7 @@ export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = SNAKE_COLORS;
 export const MP_POWER_COST = 3;
 export const MP_FIRE_COOLDOWN = 2;
+export const MP_TURBO_TICKS = Math.round(1000 / MP_TICK_MS);
 export const MP_ROUNDS = 10;
 export const MP_WIN_LENGTH = 20;
 export const MP_COUNTDOWN_MS = 1000;
@@ -67,6 +68,9 @@ export interface MpSnake {
   power: number;
   queuedFires: number;
   fireCooldown: number;
+  queuedTurbo: number;
+  turboLeft: number;
+  headingHold: number;
   roundWins: number;
 }
 
@@ -270,6 +274,19 @@ export function keepLocalIntent(
       ),
     };
   }
+  if (host.tick === local.tick && mine.queuedTurbo > 0) {
+    next = {
+      ...next,
+      snakes: next.snakes.map((snake) =>
+        snake.id === playerId
+          ? {
+              ...snake,
+              queuedTurbo: Math.max(snake.queuedTurbo, mine.queuedTurbo),
+            }
+          : snake,
+      ),
+    };
+  }
   return next;
 }
 
@@ -286,6 +303,9 @@ interface MpWireSnake {
   queuedFires?: number;
   fireCooldown?: number;
   pendingFire?: boolean;
+  queuedTurbo?: number;
+  turboLeft?: number;
+  headingHold?: number;
   roundWins?: number;
 }
 
@@ -377,6 +397,15 @@ function packSnake(snake: MpSnake): MpWireSnake {
   if (snake.fireCooldown > 0) {
     packed.fireCooldown = snake.fireCooldown;
   }
+  if (snake.queuedTurbo > 0) {
+    packed.queuedTurbo = snake.queuedTurbo;
+  }
+  if (snake.turboLeft > 0) {
+    packed.turboLeft = snake.turboLeft;
+  }
+  if (snake.headingHold > 0) {
+    packed.headingHold = snake.headingHold;
+  }
   if (snake.roundWins > 0) {
     packed.roundWins = snake.roundWins;
   }
@@ -421,6 +450,18 @@ function unpackSnake(value: unknown): MpSnake | null {
     fireCooldown:
       typeof row.fireCooldown === "number"
         ? Math.max(0, Math.floor(row.fireCooldown))
+        : 0,
+    queuedTurbo:
+      typeof row.queuedTurbo === "number"
+        ? Math.max(0, Math.floor(row.queuedTurbo))
+        : 0,
+    turboLeft:
+      typeof row.turboLeft === "number"
+        ? Math.max(0, Math.floor(row.turboLeft))
+        : 0,
+    headingHold:
+      typeof row.headingHold === "number"
+        ? Math.max(0, Math.floor(row.headingHold))
         : 0,
     roundWins:
       typeof row.roundWins === "number"
@@ -640,6 +681,11 @@ export function advanceReplay(state: MpState): MpState {
 export function describeDeaths(deaths: MpDeath[], snakes: MpSnake[]): string {
   const nameOf = (id: string): string =>
     snakes.find((snake) => snake.id === id)?.name ?? "Player";
+  const headDeaths = new Set(
+    deaths
+      .filter((death) => death.cause === "head")
+      .map((death) => death.playerId),
+  );
   const lines: string[] = [];
   const seenHead = new Set<string>();
   for (const death of deaths) {
@@ -649,9 +695,15 @@ export function describeDeaths(deaths: MpDeath[], snakes: MpSnake[]): string {
         continue;
       }
       seenHead.add(key);
-      lines.push(
-        `${nameOf(death.playerId)} and ${nameOf(death.otherId)} crashed`,
-      );
+      if (headDeaths.has(death.otherId)) {
+        lines.push(
+          `${nameOf(death.playerId)} and ${nameOf(death.otherId)} crashed`,
+        );
+      } else {
+        lines.push(
+          `${nameOf(death.playerId)} ran into ${nameOf(death.otherId)}`,
+        );
+      }
       continue;
     }
     if (death.cause === "wall") {
@@ -725,6 +777,9 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
       power: 0,
       queuedFires: 0,
       fireCooldown: 0,
+      queuedTurbo: 0,
+      turboLeft: 0,
+      headingHold: 0,
       roundWins: 0,
     };
   });
@@ -763,6 +818,9 @@ function respawnSnakes(from: MpSnake[], resetMatch: boolean): MpSnake[] {
       power: 0,
       queuedFires: 0,
       fireCooldown: 0,
+      queuedTurbo: 0,
+      turboLeft: 0,
+      headingHold: 0,
       roundWins: resetMatch ? 0 : snake.roundWins,
     };
   });
@@ -850,10 +908,32 @@ export function queueMpFire(state: MpState, playerId: string): MpState {
         return snake;
       }
       const affordable = Math.floor(snake.power / MP_POWER_COST);
-      if (snake.queuedFires >= affordable) {
+      if (snake.queuedFires + snake.queuedTurbo >= affordable) {
         return snake;
       }
       return { ...snake, queuedFires: snake.queuedFires + 1 };
+    }),
+  };
+}
+
+export function queueMpTurbo(state: MpState, playerId: string): MpState {
+  if (state.status !== "playing") {
+    return state;
+  }
+  return {
+    ...state,
+    snakes: state.snakes.map((snake) => {
+      if (snake.id !== playerId || !snake.alive) {
+        return snake;
+      }
+      if (snake.turboLeft > 0 || snake.queuedTurbo > 0) {
+        return snake;
+      }
+      const affordable = Math.floor(snake.power / MP_POWER_COST);
+      if (snake.queuedFires + snake.queuedTurbo >= affordable) {
+        return snake;
+      }
+      return { ...snake, queuedTurbo: 1 };
     }),
   };
 }
@@ -1000,6 +1080,126 @@ function inBounds(point: Point): boolean {
   );
 }
 
+function addCombat(
+  combatScore: Map<string, number>,
+  ownerId: string,
+  cells: number,
+): void {
+  if (cells <= 0) {
+    return;
+  }
+  combatScore.set(
+    ownerId,
+    (combatScore.get(ownerId) ?? 0) + cells * SCORE_PER_FOOD,
+  );
+}
+
+function remainingLength(snake: MpSnake, bodies: Map<string, Point[]>): number {
+  const cut = bodies.get(snake.id);
+  if (cut && cut.length !== snake.body.length) {
+    return cut.length;
+  }
+  return snake.body.length;
+}
+
+function headingHoldThisTick(snake: MpSnake, dir: Direction): number {
+  return dir !== snake.direction ? 0 : snake.headingHold;
+}
+
+function nextHeadingHold(snake: MpSnake, dir: Direction): number {
+  return dir !== snake.direction ? 0 : snake.headingHold + 1;
+}
+
+function decideHeadPair(
+  a: MpSnake,
+  b: MpSnake,
+  nextDir: Map<string, Direction>,
+  dying: Set<string>,
+  deaths: Map<string, MpDeath>,
+  combatScore: Map<string, number>,
+  lengthOf: (snake: MpSnake) => number,
+): void {
+  const dirA = nextDir.get(a.id) ?? a.direction;
+  const dirB = nextDir.get(b.id) ?? b.direction;
+  const holdA = headingHoldThisTick(a, dirA);
+  const holdB = headingHoldThisTick(b, dirB);
+  if (holdA === holdB) {
+    dying.add(a.id);
+    dying.add(b.id);
+    rememberDeath(deaths, a.id, "head", b.id);
+    rememberDeath(deaths, b.id, "head", a.id);
+    return;
+  }
+  const winner = holdA > holdB ? a : b;
+  const loser = holdA > holdB ? b : a;
+  dying.add(loser.id);
+  rememberDeath(deaths, loser.id, "head", winner.id);
+  addCombat(combatScore, winner.id, lengthOf(loser));
+}
+
+function applyHeadCollisions(
+  movers: MpSnake[],
+  nextHead: Map<string, Point>,
+  nextDir: Map<string, Direction>,
+  dying: Set<string>,
+  deaths: Map<string, MpDeath>,
+  combatScore: Map<string, number>,
+  lengthOf: (snake: MpSnake) => number,
+): void {
+  const byId = new Map(movers.map((snake) => [snake.id, snake]));
+  const byCell = new Map<string, string[]>();
+  for (const [id, head] of nextHead) {
+    if (dying.has(id)) {
+      continue;
+    }
+    const key = cellKey(head);
+    const list = byCell.get(key) ?? [];
+    list.push(id);
+    byCell.set(key, list);
+  }
+  for (const ids of byCell.values()) {
+    if (ids.length < 2) {
+      continue;
+    }
+    if (ids.length > 2) {
+      for (const id of ids) {
+        dying.add(id);
+        rememberDeath(
+          deaths,
+          id,
+          "head",
+          ids.find((other) => other !== id) ?? null,
+        );
+      }
+      continue;
+    }
+    const a = byId.get(ids[0]);
+    const b = byId.get(ids[1]);
+    if (!a || !b) {
+      continue;
+    }
+    decideHeadPair(a, b, nextDir, dying, deaths, combatScore, lengthOf);
+  }
+
+  for (let i = 0; i < movers.length; i += 1) {
+    for (let j = i + 1; j < movers.length; j += 1) {
+      const a = movers[i];
+      const b = movers[j];
+      if (dying.has(a.id) || dying.has(b.id)) {
+        continue;
+      }
+      const headA = nextHead.get(a.id);
+      const headB = nextHead.get(b.id);
+      if (!headA || !headB) {
+        continue;
+      }
+      if (pointsEqual(headA, b.body[0]) && pointsEqual(headB, a.body[0])) {
+        decideHeadPair(a, b, nextDir, dying, deaths, combatScore, lengthOf);
+      }
+    }
+  }
+}
+
 function resolveShot(
   shot: MpShot,
   snakes: MpSnake[],
@@ -1007,6 +1207,7 @@ function resolveShot(
   foods: Point[],
   dying: Set<string>,
   deaths: Map<string, MpDeath>,
+  combatScore: Map<string, number>,
 ): { keep: boolean; foods: Point[]; appleOwner: string | null } {
   const here = { x: shot.x, y: shot.y };
   if (!inBounds(here)) {
@@ -1041,19 +1242,201 @@ function resolveShot(
       }
       dying.add(snake.id);
       rememberDeath(deaths, snake.id, "shot", shot.ownerId);
+      addCombat(combatScore, shot.ownerId, body.length);
       return { keep: false, foods, appleOwner: null };
     }
     const leftover = body.slice(0, hitIndex);
+    const lost = body.length - leftover.length;
     if (leftover.length === 0) {
       dying.add(snake.id);
       rememberDeath(deaths, snake.id, "shot", shot.ownerId);
+      addCombat(combatScore, shot.ownerId, body.length);
     } else {
       bodies.set(snake.id, leftover);
+      addCombat(combatScore, shot.ownerId, lost);
     }
     return { keep: false, foods, appleOwner: null };
   }
 
   return { keep: true, foods, appleOwner: null };
+}
+
+function extraTurboStep(
+  snakes: MpSnake[],
+  foods: Point[],
+  shots: MpShot[],
+): {
+  snakes: MpSnake[];
+  foods: Point[];
+  shots: MpShot[];
+  deaths: MpDeath[];
+} {
+  const turbo = snakes.filter((snake) => snake.alive && snake.turboLeft > 0);
+  if (turbo.length === 0) {
+    return { snakes, foods, shots, deaths: [] };
+  }
+
+  const combatScore = new Map<string, number>();
+
+  const deaths = new Map<string, MpDeath>();
+  const dying = new Set<string>();
+  const nextHead = new Map<string, Point>();
+  const nextDir = new Map<string, Direction>();
+
+  for (const snake of turbo) {
+    const dir =
+      OPPOSITE[snake.direction] === snake.pending
+        ? snake.direction
+        : snake.pending;
+    nextDir.set(snake.id, dir);
+    const head = snake.body[0];
+    const delta = DIRECTION_DELTA[dir];
+    nextHead.set(snake.id, { x: head.x + delta.x, y: head.y + delta.y });
+  }
+
+  applyHeadCollisions(
+    turbo,
+    nextHead,
+    nextDir,
+    dying,
+    deaths,
+    combatScore,
+    (snake) => snake.body.length,
+  );
+
+  let nextFoods = [...foods];
+  const foodCells = occupancySet(nextFoods);
+  const eating = new Set<string>();
+  for (const snake of turbo) {
+    if (dying.has(snake.id)) {
+      continue;
+    }
+    const head = nextHead.get(snake.id);
+    if (head && foodCells.has(cellKey(head))) {
+      eating.add(snake.id);
+    }
+  }
+
+  const occupied = new Set<string>();
+  for (const snake of snakes) {
+    if (!snake.alive || dying.has(snake.id)) {
+      continue;
+    }
+    const turboMove = turbo.some((row) => row.id === snake.id);
+    const skipTail =
+      turboMove && !eating.has(snake.id) && snake.body.length > 0;
+    const body = skipTail ? snake.body.slice(0, -1) : snake.body;
+    for (const point of body) {
+      occupied.add(cellKey(point));
+    }
+  }
+
+  for (const snake of turbo) {
+    if (dying.has(snake.id)) {
+      continue;
+    }
+    const head = nextHead.get(snake.id);
+    if (!head || !inBounds(head)) {
+      dying.add(snake.id);
+      rememberDeath(deaths, snake.id, "wall");
+      continue;
+    }
+    if (occupied.has(cellKey(head))) {
+      dying.add(snake.id);
+      const owner = bodyOwner(snakes, head);
+      if (!owner || owner.id === snake.id) {
+        rememberDeath(deaths, snake.id, "self");
+      } else {
+        rememberDeath(deaths, snake.id, "body", owner.id);
+        addCombat(combatScore, owner.id, snake.body.length);
+      }
+    }
+  }
+
+  const liveShots = [...shots];
+  for (let i = liveShots.length - 1; i >= 0; i -= 1) {
+    const shot = liveShots[i];
+    for (const snake of turbo) {
+      if (dying.has(snake.id) || snake.id === shot.ownerId) {
+        continue;
+      }
+      const head = nextHead.get(snake.id);
+      if (head && pointsEqual(head, shot)) {
+        dying.add(snake.id);
+        rememberDeath(deaths, snake.id, "shot", shot.ownerId);
+        addCombat(combatScore, shot.ownerId, snake.body.length);
+        liveShots.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  for (const id of dying) {
+    eating.delete(id);
+  }
+
+  const eatenHeads = new Set<string>();
+  for (const id of eating) {
+    const head = nextHead.get(id);
+    if (head) {
+      eatenHeads.add(cellKey(head));
+    }
+  }
+  nextFoods = nextFoods.filter((food) => !eatenHeads.has(cellKey(food)));
+
+  const nextSnakes = snakes.map((snake) => {
+    const apples = eating.has(snake.id) ? 1 : 0;
+    if (!snake.alive) {
+      return snake;
+    }
+    if (dying.has(snake.id)) {
+      return {
+        ...snake,
+        alive: false,
+        queuedFires: 0,
+        queuedTurbo: 0,
+        turboLeft: 0,
+        fireCooldown: 0,
+        power: chargePower(snake.power, apples),
+        score: snake.score + apples * SCORE_PER_FOOD,
+      };
+    }
+    if (!nextHead.has(snake.id)) {
+      return snake;
+    }
+    const dir = nextDir.get(snake.id) ?? snake.direction;
+    const head = nextHead.get(snake.id);
+    if (!head) {
+      return snake;
+    }
+    const ate = eating.has(snake.id);
+    const body = ate
+      ? [head, ...snake.body]
+      : [head, ...snake.body.slice(0, -1)];
+    return {
+      ...snake,
+      body,
+      direction: dir,
+      pending: dir,
+      score: snake.score + apples * SCORE_PER_FOOD,
+      power: chargePower(snake.power, apples),
+    };
+  });
+
+  const withCombat = nextSnakes.map((snake) => {
+    const bonus = combatScore.get(snake.id) ?? 0;
+    if (bonus === 0) {
+      return snake;
+    }
+    return { ...snake, score: snake.score + bonus };
+  });
+
+  return {
+    snakes: withCombat,
+    foods: nextFoods,
+    shots: liveShots,
+    deaths: [...deaths.values()],
+  };
 }
 
 export function tickMp(state: MpState): MpState {
@@ -1066,8 +1449,10 @@ export function tickMp(state: MpState): MpState {
   const nextHead = new Map<string, Point>();
   const nextDir = new Map<string, Direction>();
   const deaths = new Map<string, MpDeath>();
-  const powerSpent = new Set<string>();
+  const firedIds = new Set<string>();
+  const turboStarted = new Set<string>();
   const shotApples = new Map<string, number>();
+  const combatScore = new Map<string, number>();
 
   for (const snake of alive) {
     const dir =
@@ -1089,23 +1474,23 @@ export function tickMp(state: MpState): MpState {
   );
   const spawned: MpShot[] = [];
   for (const snake of alive) {
-    if (
-      snake.queuedFires <= 0 ||
-      snake.power < MP_POWER_COST ||
-      snake.fireCooldown > 0
-    ) {
-      continue;
+    let charges = Math.floor(snake.power / MP_POWER_COST);
+    if (snake.queuedFires > 0 && snake.fireCooldown <= 0 && charges > 0) {
+      const dir = nextDir.get(snake.id) ?? snake.direction;
+      const head = nextHead.get(snake.id) ?? snake.body[0];
+      const delta = DIRECTION_DELTA[dir];
+      spawned.push({
+        ownerId: snake.id,
+        x: head.x + delta.x,
+        y: head.y + delta.y,
+        direction: dir,
+      });
+      firedIds.add(snake.id);
+      charges -= 1;
     }
-    const dir = nextDir.get(snake.id) ?? snake.direction;
-    const head = nextHead.get(snake.id) ?? snake.body[0];
-    const delta = DIRECTION_DELTA[dir];
-    spawned.push({
-      ownerId: snake.id,
-      x: head.x + delta.x,
-      y: head.y + delta.y,
-      direction: dir,
-    });
-    powerSpent.add(snake.id);
+    if (snake.queuedTurbo > 0 && snake.turboLeft <= 0 && charges > 0) {
+      turboStarted.add(snake.id);
+    }
   }
 
   const traveling = state.shots.map((shot) => {
@@ -1128,6 +1513,7 @@ export function tickMp(state: MpState): MpState {
       foods,
       dying,
       deaths,
+      combatScore,
     );
     foods = resolved.foods;
     if (resolved.appleOwner) {
@@ -1145,50 +1531,15 @@ export function tickMp(state: MpState): MpState {
     nextHead.delete(id);
   }
 
-  const byCell = new Map<string, string[]>();
-  for (const [id, head] of nextHead) {
-    if (dying.has(id)) {
-      continue;
-    }
-    const key = cellKey(head);
-    const list = byCell.get(key) ?? [];
-    list.push(id);
-    byCell.set(key, list);
-  }
-  for (const ids of byCell.values()) {
-    if (ids.length > 1) {
-      for (const id of ids) {
-        dying.add(id);
-        rememberDeath(
-          deaths,
-          id,
-          "head",
-          ids.find((other) => other !== id) ?? null,
-        );
-      }
-    }
-  }
-
-  for (let i = 0; i < alive.length; i += 1) {
-    for (let j = i + 1; j < alive.length; j += 1) {
-      const a = alive[i];
-      const b = alive[j];
-      if (dying.has(a.id) || dying.has(b.id)) {
-        continue;
-      }
-      const headA = nextHead.get(a.id);
-      const headB = nextHead.get(b.id);
-      if (!headA || !headB) {
-        continue;
-      }
-      if (pointsEqual(headA, b.body[0]) && pointsEqual(headB, a.body[0])) {
-        dying.add(a.id);
-        dying.add(b.id);
-        rememberDeath(deaths, a.id, "head", b.id);
-        rememberDeath(deaths, b.id, "head", a.id);
-      }
-    }
-  }
+  applyHeadCollisions(
+    alive,
+    nextHead,
+    nextDir,
+    dying,
+    deaths,
+    combatScore,
+    (snake) => remainingLength(snake, bodies),
+  );
 
   const foodCells = occupancySet(foods);
   const eating = new Set<string>();
@@ -1204,14 +1555,13 @@ export function tickMp(state: MpState): MpState {
 
   const occupied = new Set<string>();
   for (const snake of state.snakes) {
+    if (!snake.alive || dying.has(snake.id)) {
+      continue;
+    }
     const cut = bodies.get(snake.id) ?? snake.body;
-    const clipped = cut.length !== snake.body.length && !dying.has(snake.id);
+    const clipped = cut.length !== snake.body.length;
     const segments = clipped ? cut : snake.body;
-    const skipTail =
-      snake.alive &&
-      !dying.has(snake.id) &&
-      !eating.has(snake.id) &&
-      segments.length > 0;
+    const skipTail = !eating.has(snake.id) && segments.length > 0;
     const body = skipTail ? segments.slice(0, -1) : segments;
     for (const point of body) {
       occupied.add(cellKey(point));
@@ -1240,6 +1590,7 @@ export function tickMp(state: MpState): MpState {
         rememberDeath(deaths, snake.id, "self");
       } else {
         rememberDeath(deaths, snake.id, "body", owner.id);
+        addCombat(combatScore, owner.id, remainingLength(snake, bodies));
       }
     }
   }
@@ -1254,6 +1605,7 @@ export function tickMp(state: MpState): MpState {
       if (head && pointsEqual(head, shot)) {
         dying.add(snake.id);
         rememberDeath(deaths, snake.id, "shot", shot.ownerId);
+        addCombat(combatScore, shot.ownerId, remainingLength(snake, bodies));
         liveShots.splice(i, 1);
         break;
       }
@@ -1267,27 +1619,42 @@ export function tickMp(state: MpState): MpState {
   const snakes = state.snakes.map((snake) => {
     const apples =
       (eating.has(snake.id) ? 1 : 0) + (shotApples.get(snake.id) ?? 0);
-    const fired = powerSpent.has(snake.id);
-    const powerBase = fired
-      ? Math.max(0, snake.power - MP_POWER_COST)
-      : snake.power;
+    const fired = firedIds.has(snake.id);
+    const boosted = turboStarted.has(snake.id) && !dying.has(snake.id);
+    let spend = 0;
+    if (fired) {
+      spend += MP_POWER_COST;
+    }
+    if (boosted) {
+      spend += MP_POWER_COST;
+    }
+    const powerBase = Math.max(0, snake.power - spend);
     const queuedFires = fired
       ? Math.max(0, snake.queuedFires - 1)
       : snake.queuedFires;
     const fireCooldown = fired
       ? MP_FIRE_COOLDOWN
       : Math.max(0, snake.fireCooldown - 1);
+    const combat = combatScore.get(snake.id) ?? 0;
     if (!snake.alive) {
-      return { ...snake, queuedFires: 0, fireCooldown: 0 };
+      return {
+        ...snake,
+        queuedFires: 0,
+        queuedTurbo: 0,
+        turboLeft: 0,
+        fireCooldown: 0,
+      };
     }
     if (dying.has(snake.id)) {
       return {
         ...snake,
         alive: false,
         queuedFires: 0,
+        queuedTurbo: 0,
+        turboLeft: 0,
         fireCooldown: 0,
         power: chargePower(powerBase, apples),
-        score: snake.score + apples * SCORE_PER_FOOD,
+        score: snake.score + apples * SCORE_PER_FOOD + combat,
       };
     }
     const leftover = bodies.get(snake.id) ?? snake.body;
@@ -1297,20 +1664,32 @@ export function tickMp(state: MpState): MpState {
     const dir = nextDir.get(snake.id) ?? snake.direction;
     const head = nextHead.get(snake.id);
     if (!head) {
-      return { ...snake, alive: false, queuedFires: 0, fireCooldown: 0 };
+      return {
+        ...snake,
+        alive: false,
+        queuedFires: 0,
+        queuedTurbo: 0,
+        turboLeft: 0,
+        fireCooldown: 0,
+      };
     }
     const ate = eating.has(snake.id);
     const body = ate ? [head, ...base] : [head, ...base.slice(0, -1)];
+    const turboLeft = boosted ? MP_TURBO_TICKS : snake.turboLeft;
+    const queuedTurbo = boosted ? 0 : snake.queuedTurbo;
     return {
       ...snake,
       body,
       direction: dir,
       pending: dir,
+      headingHold: nextHeadingHold(snake, dir),
       queuedFires,
       fireCooldown,
+      queuedTurbo,
+      turboLeft,
       score: Math.max(
         0,
-        snake.score - lost * SCORE_PER_FOOD + apples * SCORE_PER_FOOD,
+        snake.score - lost * SCORE_PER_FOOD + apples * SCORE_PER_FOOD + combat,
       ),
       power: chargePower(powerBase, apples),
     };
@@ -1324,19 +1703,29 @@ export function tickMp(state: MpState): MpState {
     }
   }
   const remainingFoods = foods.filter((food) => !eatenHeads.has(cellKey(food)));
-  const maxScore = Math.max(0, ...snakes.map((snake) => snake.score));
+
+  const boosted = extraTurboStep(snakes, remainingFoods, liveShots);
+  const cooled = boosted.snakes.map((snake) => ({
+    ...snake,
+    turboLeft: snake.alive && snake.turboLeft > 0 ? snake.turboLeft - 1 : 0,
+  }));
+  const lastDeaths =
+    deaths.size > 0 || boosted.deaths.length > 0
+      ? [...deaths.values(), ...boosted.deaths]
+      : state.lastDeaths;
+  const maxScore = Math.max(0, ...cooled.map((snake) => snake.score));
   const nextFoods =
-    remainingFoods.length >= baitCountForScore(maxScore)
-      ? remainingFoods
-      : refillFoods(allBodies(snakes), remainingFoods, maxScore, rng);
+    boosted.foods.length >= baitCountForScore(maxScore)
+      ? boosted.foods
+      : refillFoods(allBodies(cooled), boosted.foods, maxScore, rng);
 
   return resolveWinner({
     ...state,
-    snakes,
+    snakes: cooled,
     foods: nextFoods,
-    shots: liveShots,
+    shots: boosted.shots,
     rngState: rng.state(),
     tick: state.tick + 1,
-    lastDeaths: deaths.size > 0 ? [...deaths.values()] : state.lastDeaths,
+    lastDeaths,
   });
 }

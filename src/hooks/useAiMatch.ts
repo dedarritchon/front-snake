@@ -17,6 +17,7 @@ import {
   type MpState,
   queueMpFire,
   queueMpInput,
+  queueMpTurbo,
   shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
@@ -40,6 +41,9 @@ function applyAi(state: MpState): MpState {
     }
     const action = chooseAiAction(next, snake.id);
     next = queueMpInput(next, snake.id, action.dir);
+    if (action.turbo) {
+      next = queueMpTurbo(next, snake.id);
+    }
     if (action.fire) {
       next = queueMpFire(next, snake.id);
     }
@@ -309,6 +313,15 @@ export function useAiMatch(playerName: string) {
     stateRef.current = queueMpFire(current, AI_YOU_ID);
   }, []);
 
+  const sendTurbo = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    stateRef.current = queueMpTurbo(current, AI_YOU_ID);
+  }, []);
+
   const rematch = useCallback(() => {
     const current = stateRef.current;
     if (!current) {
@@ -355,6 +368,7 @@ export function useAiMatch(playerName: string) {
     eliminated,
     sendDirection,
     sendFire,
+    sendTurbo,
     rematch,
     replaySlowMo,
   };

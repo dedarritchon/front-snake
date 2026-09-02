@@ -24,6 +24,7 @@ import {
   mpTickMs,
   queueMpFire,
   queueMpInput,
+  queueMpTurbo,
   shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
@@ -263,7 +264,9 @@ export function useMultiplayerRoom(
           const next =
             input.kind === "fire"
               ? queueMpFire(current, input.playerId)
-              : queueMpInput(current, input.playerId, input.dir);
+              : input.kind === "turbo"
+                ? queueMpTurbo(current, input.playerId)
+                : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
         },
         onStart: () => {
@@ -563,6 +566,24 @@ export function useMultiplayerRoom(
     roomRef.current?.sendFire();
   }, []);
 
+  const sendTurbo = useCallback(() => {
+    void snakeAudio.unlock();
+    if (isHostRef.current) {
+      const current = stateRef.current;
+      if (!current) {
+        return;
+      }
+      stateRef.current = queueMpTurbo(current, identityRef.current.playerId);
+      return;
+    }
+    const current = stateRef.current;
+    if (current?.status !== "playing") {
+      return;
+    }
+    stateRef.current = queueMpTurbo(current, identityRef.current.playerId);
+    roomRef.current?.sendTurbo();
+  }, []);
+
   const toggleReady = useCallback(() => {
     const status = stateRef.current?.status ?? "lobby";
     if (status === "playing" || status === "replay" || status === "countdown") {
@@ -628,6 +649,7 @@ export function useMultiplayerRoom(
     personalView,
     sendDirection,
     sendFire,
+    sendTurbo,
     toggleReady,
     setColor,
     replaySlowMo,

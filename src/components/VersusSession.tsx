@@ -1,11 +1,11 @@
-import {useCallback, useEffect, useState} from 'react';
-import {styled} from 'styled-components';
+import { useCallback, useEffect, useState } from "react";
+import { styled } from "styled-components";
 
-import {snakeAudio} from '../audio/snakeAudio';
-import {VersusBoard} from '../components/VersusBoard';
-import {useFrontContext} from '../context/FrontContext';
-import type {Direction} from '../game/types';
-import {useMultiplayerRoom} from '../hooks/useMultiplayerRoom';
+import { snakeAudio } from "../audio/snakeAudio";
+import { VersusBoard } from "../components/VersusBoard";
+import { useFrontContext } from "../context/FrontContext";
+import type { Direction } from "../game/types";
+import { useMultiplayerRoom } from "../hooks/useMultiplayerRoom";
 
 const Page = styled.div`
   height: 100%;
@@ -22,13 +22,13 @@ function playerName(
   name?: string | null,
 ): string {
   if (guest) {
-    return 'Guest';
+    return "Guest";
   }
   const fromName = name?.trim();
   if (fromName) {
     return fromName;
   }
-  return email.split('@')[0] || 'Player';
+  return email.split("@")[0] || "Player";
 }
 
 export function VersusSession({
@@ -40,10 +40,10 @@ export function VersusSession({
   claimHost: boolean;
   onSolo: () => void;
 }) {
-  const {context, guest} = useFrontContext();
+  const { context, guest } = useFrontContext();
   const name = playerName(
     guest,
-    context?.teammate.email ?? '',
+    context?.teammate.email ?? "",
     context?.teammate.name,
   );
   const {
@@ -57,6 +57,7 @@ export function VersusSession({
     personalView,
     sendDirection,
     sendFire,
+    sendTurbo,
     toggleReady,
     setColor,
     replaySlowMo,
@@ -78,7 +79,7 @@ export function VersusSession({
         }, 1600);
       },
       () => {
-        window.prompt('Copy room id', roomId);
+        window.prompt("Copy room id", roomId);
       },
     );
   }, [roomId]);
@@ -88,46 +89,51 @@ export function VersusSession({
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
       ) {
         return;
       }
       const key = event.key.toLowerCase();
       let direction: Direction | null = null;
-      if (key === 'arrowup' || key === 'w') {
-        direction = 'up';
-      } else if (key === 'arrowdown' || key === 's') {
-        direction = 'down';
-      } else if (key === 'arrowleft' || key === 'a') {
-        direction = 'left';
-      } else if (key === 'arrowright' || key === 'd') {
-        direction = 'right';
+      if (key === "arrowup" || key === "w") {
+        direction = "up";
+      } else if (key === "arrowdown" || key === "s") {
+        direction = "down";
+      } else if (key === "arrowleft" || key === "a") {
+        direction = "left";
+      } else if (key === "arrowright" || key === "d") {
+        direction = "right";
       }
       if (direction) {
         event.preventDefault();
         sendDirection(direction);
         return;
       }
-      if (event.code === 'Space' || key === ' ') {
+      if (event.key === "Shift") {
+        event.preventDefault();
+        sendTurbo();
+        return;
+      }
+      if (event.code === "Space" || key === " ") {
         event.preventDefault();
         sendFire();
         return;
       }
-      if (key === 'm') {
+      if (key === "m") {
         event.preventDefault();
         toggleMute();
         return;
       }
-      if (key === 'enter') {
+      if (key === "enter") {
         event.preventDefault();
         toggleReady();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, [sendDirection, sendFire, toggleMute, toggleReady]);
+  }, [sendDirection, sendFire, sendTurbo, toggleMute, toggleReady]);
 
   return (
     <Page>

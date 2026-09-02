@@ -416,12 +416,17 @@ function paintVersus(
   const cellW = width / cols;
   const cellH = height / rows;
 
-  for (const snake of snakes) {
+  const painted = [...snakes].sort((a, b) => Number(a.alive) - Number(b.alive));
+  for (const snake of painted) {
     const inset = snake.alive ? 0.08 : 0.04;
     const padX = cellW * inset;
     const padY = cellH * inset;
     const sizeW = cellW - padX * 2;
     const sizeH = cellH - padY * 2;
+    ctx.save();
+    if (!snake.alive) {
+      ctx.globalAlpha = 0.28;
+    }
     ctx.fillStyle = snake.color;
     for (const segment of snake.body) {
       ctx.fillRect(
@@ -432,6 +437,7 @@ function paintVersus(
       );
     }
     if (!snake.alive && snake.body[0]) {
+      ctx.globalAlpha = 0.7;
       const head = snake.body[0];
       const cx = (head.x + 0.5) * cellW;
       const cy = (head.y + 0.5) * cellH;
@@ -446,6 +452,7 @@ function paintVersus(
       ctx.lineTo(cx - arm, cy + arm);
       ctx.stroke();
     }
+    ctx.restore();
   }
 
   for (const food of foods) {
@@ -868,6 +875,9 @@ export function VersusBoard({
             );
           })}
         </Roster>
+        {status === "playing" || status === "countdown" ? (
+          <OverlayHint>Space rocket · Shift turbo</OverlayHint>
+        ) : null}
         <Ghost type="button" onClick={onSolo}>
           Back to solo
         </Ghost>

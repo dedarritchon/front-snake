@@ -33,7 +33,8 @@ export interface PresenceMeta {
 
 export type RoomInput =
   | { playerId: string; kind: "dir"; dir: Direction }
-  | { playerId: string; kind: "fire" };
+  | { playerId: string; kind: "fire" }
+  | { playerId: string; kind: "turbo" };
 
 export interface RoomHandlers {
   onState: (state: MpState) => void;
@@ -48,9 +49,17 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
   if (typeof payload !== "object" || payload === null) {
     return null;
   }
-  const body = payload as { playerId?: unknown; dir?: unknown; fire?: unknown };
+  const body = payload as {
+    playerId?: unknown;
+    dir?: unknown;
+    fire?: unknown;
+    turbo?: unknown;
+  };
   if (typeof body.playerId !== "string") {
     return null;
+  }
+  if (body.turbo === true) {
+    return { playerId: body.playerId, kind: "turbo" };
   }
   if (body.fire === true) {
     return { playerId: body.playerId, kind: "fire" };
@@ -226,6 +235,14 @@ export class MultiplayerRoom {
       type: "broadcast",
       event: "input",
       payload: { playerId: this.self.playerId, fire: true },
+    });
+  }
+
+  sendTurbo(): void {
+    void this.channel?.send({
+      type: "broadcast",
+      event: "input",
+      payload: { playerId: this.self.playerId, turbo: true },
     });
   }
 

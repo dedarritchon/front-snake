@@ -189,7 +189,11 @@ describe("chooseAiAction", () => {
         },
       ],
     }));
-    expect(chooseAiAction(state, "rom")).toEqual({ dir: "right", fire: true });
+    expect(chooseAiAction(state, "rom")).toEqual({
+      dir: "right",
+      fire: true,
+      turbo: false,
+    });
   });
 
   it("fires to eat an apple on the ray", () => {

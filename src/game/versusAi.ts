@@ -36,6 +36,7 @@ export type AiKind = "farmer" | "hunter" | "flanker";
 export interface AiAction {
   dir: Direction;
   fire: boolean;
+  turbo: boolean;
 }
 
 const TURN: Direction[] = ["up", "right", "down", "left"];
@@ -123,6 +124,9 @@ function occupancy(state: MpState, self: MpSnake, next: Point): Set<string> {
   const eating = state.foods.some((food) => pointsEqual(food, next));
   const blocked = new Set<string>();
   for (const snake of state.snakes) {
+    if (!snake.alive) {
+      continue;
+    }
     const skipTail = snake.id === self.id && !eating && snake.body.length > 0;
     const body = skipTail ? snake.body.slice(0, -1) : snake.body;
     for (const point of body) {
@@ -207,18 +211,14 @@ function rayHit(
       return "food";
     }
     for (const snake of state.snakes) {
-      if (!snake.body[0]) {
+      if (!snake.body[0] || !snake.alive) {
         continue;
       }
-      if (
-        snake.id !== ownerId &&
-        snake.alive &&
-        pointsEqual(snake.body[0], cursor)
-      ) {
+      if (snake.id !== ownerId && pointsEqual(snake.body[0], cursor)) {
         return "head";
       }
       const bodyHit = snake.body.some((segment, index) => {
-        if (index === 0 && snake.id !== ownerId && snake.alive) {
+        if (index === 0 && snake.id !== ownerId) {
           return false;
         }
         return pointsEqual(segment, cursor);
@@ -323,7 +323,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
   const kind = aiKind(playerId) ?? "farmer";
   const self = state.snakes.find((snake) => snake.id === playerId);
   if (!self?.alive || state.status !== "playing" || !self.body[0]) {
-    return { dir: self?.direction ?? "right", fire: false };
+    return { dir: self?.direction ?? "right", fire: false, turbo: false };
   }
 
   const head = self.body[0];
@@ -332,6 +332,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
   const goals = foodGoals(state, self, kind, lookBlocked);
   let bestDir = self.direction;
   let bestScore = -INF;
+  let bestFoodDist = INF;
 
   for (const dir of candidates(self.direction)) {
     if (OPPOSITE[self.direction] === dir) {
@@ -378,12 +379,19 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     if (score > bestScore) {
       bestScore = score;
       bestDir = dir;
+      bestFoodDist = foodDist;
     }
   }
 
   const fireHit = rayHit(shotSpawn(head, bestDir), bestDir, state, self.id);
   const fire =
     self.power >= MP_POWER_COST && (fireHit === "head" || fireHit === "food");
+  const charges = Math.floor(self.power / MP_POWER_COST);
+  const turbo =
+    kind !== "farmer" &&
+    charges > (fire ? 1 : 0) &&
+    self.turboLeft <= 0 &&
+    (bestFoodDist <= 8 || fireHit === "head");
 
-  return { dir: bestDir, fire };
+  return { dir: bestDir, fire, turbo };
 }
