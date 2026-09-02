@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { BASE_TICK_MS, SCORE_PER_FOOD as SOLO_SCORE } from "./engine";
 import type { MpPlayer, MpState } from "./multiplayerEngine";
 import {
+  advanceCountdown,
   advanceReplay,
   allReadyToStart,
   beginReplay,
+  beginRound,
   createMpLobby,
   createPlayerId,
   createRoomId,
@@ -15,12 +17,15 @@ import {
   keepLocalIntent,
   killPlayer,
   markHostLeft,
+  MP_COUNTDOWN_START,
   MP_FIRE_COOLDOWN,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_MAX_PLAYERS,
   MP_POWER_COST,
+  MP_ROUNDS,
   MP_TICK_MS,
+  MP_WIN_LENGTH,
   mpRound,
   mpTickMs,
   normalizeRoomId,
@@ -175,10 +180,10 @@ describe("multiplayerEngine", () => {
       ],
     };
     state = tickMp(state);
-    expect(state.snakes[0].alive).toBe(false);
-    expect(state.snakes[1].alive).toBe(true);
-    expect(state.status).toBe("over");
-    expect(state.winnerId).toBe("b");
+    expect(state.status).toBe("countdown");
+    expect(state.matchRound).toBe(2);
+    expect(state.roundWinnerId).toBe("b");
+    expect(state.snakes.find((snake) => snake.id === "b")?.roundWins).toBe(1);
   });
 
   it("declares a draw when the last two heads share a cell", () => {
@@ -210,9 +215,11 @@ describe("multiplayerEngine", () => {
       ],
     };
     state = tickMp(state);
-    expect(state.status).toBe("over");
+    expect(state.status).toBe("countdown");
+    expect(state.matchRound).toBe(2);
     expect(state.winnerId).toBeNull();
-    expect(state.snakes.every((snake) => !snake.alive)).toBe(true);
+    expect(state.roundWinnerId).toBeNull();
+    expect(state.snakes.every((snake) => snake.roundWins === 0)).toBe(true);
   });
 
   it("awards the last living snake", () => {
@@ -220,6 +227,7 @@ describe("multiplayerEngine", () => {
     state = killPlayer(state, "b");
     expect(state.status).toBe("over");
     expect(state.winnerId).toBe("a");
+    expect(state.snakes.find((snake) => snake.id === "a")?.roundWins).toBe(1);
   });
 
   it("drops a player from the lobby and ends the match if the host leaves", () => {
@@ -289,7 +297,7 @@ describe("multiplayerEngine", () => {
   });
 
   it("kills a snake on the versus right wall", () => {
-    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    let state = startMp(createMpLobby(PLAYERS, 1));
     state = {
       ...state,
       foods: [{ x: 0, y: 0 }],
@@ -305,14 +313,16 @@ describe("multiplayerEngine", () => {
           ],
         },
         state.snakes[1],
+        state.snakes[2],
       ],
     };
     state = tickMp(state);
     expect(state.snakes[0].alive).toBe(false);
+    expect(state.status).toBe("playing");
   });
 
   it("does not move a dead snake", () => {
-    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    let state = startMp(createMpLobby(PLAYERS, 1));
     const body = [
       { x: 8, y: 10 },
       { x: 7, y: 10 },
@@ -330,10 +340,12 @@ describe("multiplayerEngine", () => {
           body,
         },
         state.snakes[1],
+        state.snakes[2],
       ],
     };
     state = tickMp(state);
     expect(state.snakes[0].body).toEqual(body);
+    expect(state.status).toBe("playing");
   });
 
   it("ignores input for an unknown or dead snake", () => {
@@ -362,6 +374,7 @@ describe("multiplayerEngine", () => {
       snakes: state.snakes.map((snake) => ({
         ...snake,
         score: 40,
+        roundWins: 3,
         alive: false,
       })),
     };
@@ -370,6 +383,7 @@ describe("multiplayerEngine", () => {
     expect(
       rematch.snakes.every((snake) => snake.alive && snake.score === 0),
     ).toBe(true);
+    expect(rematch.snakes.every((snake) => snake.roundWins === 0)).toBe(true);
     expect(rematch.snakes.every((snake) => snake.power === 0)).toBe(true);
     expect(rematch.shots).toEqual([]);
     expect(rematch.snakes[0].body[0]).toEqual({ x: 2, y: 3 });
@@ -450,9 +464,10 @@ describe("multiplayerEngine", () => {
       ],
     };
     const next = tickMp(state);
-    expect(next.status).toBe("over");
+    expect(next.status).toBe("countdown");
+    expect(next.roundWinnerId).toBeNull();
     expect(next.lastDeaths.every((death) => death.cause === "head")).toBe(true);
-    expect(shouldSlowMo(state, next)).toBe(true);
+    expect(shouldSlowMo(state, next)).toBe(false);
     expect(shouldPersonalSlowMo(state, next, "a")).toBe(false);
     expect(describeDeaths(next.lastDeaths, next.snakes)).toBe(
       "A and B crashed",
@@ -498,10 +513,11 @@ describe("multiplayerEngine", () => {
       ],
     };
     const next = tickMp(state);
-    expect(next.status).toBe("over");
-    expect(next.winnerId).toBe("c");
-    expect(next.snakes[2].alive).toBe(true);
-    expect(shouldSlowMo(state, next)).toBe(true);
+    expect(next.status).toBe("countdown");
+    expect(next.matchRound).toBe(2);
+    expect(next.roundWinnerId).toBe("c");
+    expect(next.snakes.find((snake) => snake.id === "c")?.roundWins).toBe(1);
+    expect(shouldSlowMo(state, next)).toBe(false);
   });
 
   it("replays frames then returns to over", () => {
@@ -784,8 +800,8 @@ describe("multiplayerEngine", () => {
       ],
     };
     const killed = tickMp(queueMpFire(headShot, "a"));
-    expect(killed.snakes[1].alive).toBe(false);
-    expect(killed.snakes[0].alive).toBe(true);
+    expect(killed.status).toBe("countdown");
+    expect(killed.roundWinnerId).toBe("a");
     expect(killed.lastDeaths[0]).toMatchObject({
       playerId: "b",
       cause: "shot",
@@ -813,25 +829,24 @@ describe("multiplayerEngine", () => {
           ...bodyShot.snakes[1],
           direction: "up",
           pending: "up",
-          score: 15,
+          score: 20,
           body: [
             { x: 7, y: 8 },
+            { x: 7, y: 9 },
             { x: 7, y: 10 },
             { x: 7, y: 11 },
             { x: 7, y: 12 },
-            { x: 7, y: 13 },
-            { x: 7, y: 14 },
           ],
         },
       ],
     };
     const grazed = tickMp(queueMpFire(bodyShot, "a"));
+    expect(grazed.status).toBe("playing");
     expect(grazed.snakes[1].alive).toBe(true);
+    expect(grazed.snakes[1].body[0]).toEqual({ x: 7, y: 7 });
     expect(grazed.snakes[1].body).toEqual([
-      { x: 7, y: 11 },
-      { x: 7, y: 12 },
-      { x: 7, y: 13 },
-      { x: 7, y: 14 },
+      { x: 7, y: 7 },
+      { x: 7, y: 8 },
     ]);
     expect(grazed.snakes[1].score).toBe(5);
     expect(grazed.shots).toEqual([]);
@@ -879,12 +894,12 @@ describe("multiplayerEngine", () => {
     expect(state.snakes[0].fireCooldown).toBe(MP_FIRE_COOLDOWN);
   });
 
-  it("ranks a finished round by score", () => {
+  it("ranks a finished match by round wins then score", () => {
     const over = startMp(createMpLobby(PLAYERS, 1));
     const ranked = roundStandings([
-      { ...over.snakes[0], score: 5, name: "A" },
-      { ...over.snakes[1], score: 25, name: "B", alive: false },
-      { ...over.snakes[2], score: 25, name: "C", alive: true },
+      { ...over.snakes[0], roundWins: 1, score: 40, name: "A" },
+      { ...over.snakes[1], roundWins: 4, score: 5, name: "B", alive: false },
+      { ...over.snakes[2], roundWins: 4, score: 25, name: "C", alive: true },
     ]);
     expect(ranked.map((snake) => snake.name)).toEqual(["C", "B", "A"]);
   });
@@ -912,5 +927,114 @@ describe("multiplayerEngine", () => {
     state = tickMp(queueMpFire(state, "a"));
     expect(state.shots).toEqual([]);
     expect(state.snakes[0].power).toBe(0);
+  });
+
+  it("does not move snakes during countdown and ignores fire", () => {
+    const counted = beginRound(createMpLobby(PLAYERS.slice(0, 2), 1), 1, {
+      resetMatch: true,
+    });
+    expect(counted.status).toBe("countdown");
+    expect(counted.countdown).toBe(MP_COUNTDOWN_START);
+    expect(counted.matchRound).toBe(1);
+    const head = counted.snakes[0].body[0];
+    expect(tickMp(counted)).toBe(counted);
+    expect(counted.snakes[0].body[0]).toEqual(head);
+    expect(queueMpInput(counted, "a", "down").snakes[0].pending).toBe("down");
+    const armed = {
+      ...counted,
+      snakes: counted.snakes.map((snake) =>
+        snake.id === "a" ? { ...snake, power: MP_POWER_COST } : snake,
+      ),
+    };
+    expect(queueMpFire(armed, "a").snakes[0].queuedFires).toBe(0);
+    let next = counted;
+    next = advanceCountdown(next);
+    expect(next.countdown).toBe(2);
+    next = advanceCountdown(next);
+    expect(next.countdown).toBe(1);
+    next = advanceCountdown(next);
+    expect(next.status).toBe("playing");
+    expect(next.countdown).toBe(0);
+  });
+
+  it("starts the next round without waiting for ready", () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "left",
+          pending: "left",
+          body: [
+            { x: 0, y: 10 },
+            { x: 1, y: 10 },
+            { x: 2, y: 10 },
+          ],
+        },
+        state.snakes[1],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe("countdown");
+    expect(next.matchRound).toBe(2);
+    expect(next.roundWinnerId).toBe("b");
+    expect(next.snakes.every((snake) => snake.alive && snake.score === 0)).toBe(
+      true,
+    );
+    expect(next.snakes.find((snake) => snake.id === "b")?.roundWins).toBe(1);
+  });
+
+  it("awards a round to a snake that reaches length 20", () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: Array.from({ length: MP_WIN_LENGTH }, (_, cell) => ({
+            x: 20 - cell,
+            y: 10,
+          })),
+        },
+        state.snakes[1],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe("countdown");
+    expect(next.roundWinnerId).toBe("a");
+    expect(next.snakes.find((snake) => snake.id === "a")?.roundWins).toBe(1);
+  });
+
+  it("ends the match after the tenth round", () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      matchRound: MP_ROUNDS,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "left",
+          pending: "left",
+          body: [
+            { x: 0, y: 10 },
+            { x: 1, y: 10 },
+            { x: 2, y: 10 },
+          ],
+        },
+        state.snakes[1],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe("over");
+    expect(next.matchRound).toBe(MP_ROUNDS);
+    expect(next.winnerId).toBe("b");
+    expect(next.snakes.find((snake) => snake.id === "b")?.roundWins).toBe(1);
+    expect(shouldSlowMo(state, next)).toBe(true);
   });
 });

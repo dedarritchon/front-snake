@@ -3,14 +3,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { snakeAudio } from "../audio/snakeAudio";
 import { isDirection, randomSeed } from "../game/engine";
 import {
+  advanceCountdown,
   advanceReplay,
   allReadyToStart,
   beginReplay,
+  beginRound,
   createMpLobby,
   createPlayerId,
   keepLocalIntent,
   killPlayer,
   markHostLeft,
+  MP_COUNTDOWN_MS,
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
   MP_TICK_MS,
@@ -24,7 +27,6 @@ import {
   shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
-  startMp,
   tickMp,
 } from "../game/multiplayerEngine";
 import {
@@ -95,12 +97,14 @@ export function useMultiplayerRoom(
       return;
     }
     const seed = randomSeed();
-    snakeAudio.playStart();
-    roomRef.current?.sendStart(seed);
     historyRef.current = [];
     personalReplayRef.current = false;
     setPersonalReplay(null);
-    publish(startMp(createMpLobby(playersRef.current, seed), seed));
+    publish(
+      beginRound(createMpLobby(playersRef.current, seed), seed, {
+        resetMatch: true,
+      }),
+    );
     clearReady();
   }, [clearReady, publish]);
   const beginMatchRef = useRef(beginMatch);
@@ -161,11 +165,14 @@ export function useMultiplayerRoom(
             void room.setColor(mine.color);
           }
           const current = stateRef.current;
-          const playing = current?.status === "playing";
+          const inMatch =
+            current?.status === "playing" ||
+            current?.status === "countdown" ||
+            current?.status === "replay";
           const nowHost =
             hostId === identity.playerId ||
             (!hostId &&
-              !playing &&
+              !inMatch &&
               current?.status !== "over" &&
               nextPlayers[0]?.id === identity.playerId);
           if (nowHost && !isHostRef.current) {
@@ -179,7 +186,10 @@ export function useMultiplayerRoom(
               publishRef.current(
                 createMpLobby(nextPlayers, current?.seed ?? randomSeed()),
               );
-            } else if (current.status === "playing") {
+            } else if (
+              current.status === "playing" ||
+              current.status === "countdown"
+            ) {
               let next = current;
               for (const snake of current.snakes) {
                 if (
@@ -209,7 +219,9 @@ export function useMultiplayerRoom(
           if (
             !hostId &&
             current &&
-            (current.status === "playing" || current.status === "lobby")
+            (current.status === "playing" ||
+              current.status === "countdown" ||
+              current.status === "lobby")
           ) {
             const left = markHostLeft(current);
             stateRef.current = left;
@@ -236,7 +248,7 @@ export function useMultiplayerRoom(
           const applied = keepLocalIntent(next, current, identity.playerId);
           stateRef.current = applied;
           setState(applied);
-          if (next.status === "playing") {
+          if (next.status === "playing" || next.status === "countdown") {
             clearReadyRef.current();
           }
         },
@@ -317,7 +329,8 @@ export function useMultiplayerRoom(
     if (
       state?.status === "replay" ||
       state?.status === "over" ||
-      state?.status === "lobby"
+      state?.status === "lobby" ||
+      state?.status === "countdown"
     ) {
       personalReplayRef.current = false;
       setPersonalReplay(null);
@@ -349,6 +362,30 @@ export function useMultiplayerRoom(
       window.clearInterval(id);
     };
   }, [personalReplay !== null, state?.status]);
+
+  useEffect(() => {
+    if (!isHost || state?.status !== "countdown") {
+      return;
+    }
+    const id = window.setInterval(() => {
+      if (!isHostRef.current) {
+        return;
+      }
+      const current = stateRef.current;
+      if (current?.status !== "countdown") {
+        return;
+      }
+      const next = advanceCountdown(current);
+      if (next.status === "playing") {
+        snakeAudio.playStart();
+        roomRef.current?.sendStart(current.seed);
+      }
+      publish(next);
+    }, MP_COUNTDOWN_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [isHost, publish, state?.status]);
 
   useEffect(() => {
     const hostLive =
@@ -495,18 +532,16 @@ export function useMultiplayerRoom(
       stateRef.current = next;
       return;
     }
-    if (stateRef.current?.status !== "playing") {
+    const current = stateRef.current;
+    if (current?.status !== "playing" && current?.status !== "countdown") {
       return;
     }
     snakeAudio.playMove(direction);
-    const current = stateRef.current;
-    if (current) {
-      stateRef.current = queueMpInput(
-        current,
-        identityRef.current.playerId,
-        direction,
-      );
-    }
+    stateRef.current = queueMpInput(
+      current,
+      identityRef.current.playerId,
+      direction,
+    );
     roomRef.current?.sendInput(direction);
   }, []);
 
@@ -520,11 +555,8 @@ export function useMultiplayerRoom(
       stateRef.current = queueMpFire(current, identityRef.current.playerId);
       return;
     }
-    if (stateRef.current?.status !== "playing") {
-      return;
-    }
     const current = stateRef.current;
-    if (!current) {
+    if (current?.status !== "playing") {
       return;
     }
     stateRef.current = queueMpFire(current, identityRef.current.playerId);
@@ -533,7 +565,7 @@ export function useMultiplayerRoom(
 
   const toggleReady = useCallback(() => {
     const status = stateRef.current?.status ?? "lobby";
-    if (status === "playing" || status === "replay") {
+    if (status === "playing" || status === "replay" || status === "countdown") {
       return;
     }
     const next = !readyRef.current;
@@ -544,7 +576,7 @@ export function useMultiplayerRoom(
 
   const setColor = useCallback((color: string) => {
     const status = stateRef.current?.status ?? "lobby";
-    if (status === "playing" || status === "replay") {
+    if (status === "playing" || status === "replay" || status === "countdown") {
       return;
     }
     if (!isSnakeColor(color)) {

@@ -3,28 +3,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { snakeAudio } from "../audio/snakeAudio";
 import { isDirection, randomSeed } from "../game/engine";
 import {
+  advanceCountdown,
   advanceReplay,
   beginReplay,
+  beginRound,
   createMpLobby,
+  MP_COUNTDOWN_MS,
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
   type MpDeath,
   type MpPlayer,
   type MpSnapshot,
   type MpState,
-  mpTickMs,
   queueMpFire,
   queueMpInput,
   shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
-  startMp,
   tickMp,
 } from "../game/multiplayerEngine";
 import { loadPreferredColor } from "../game/snakeColors";
 import type { Direction } from "../game/types";
 import {
   AI_YOU_ID,
+  aiTickMs,
   chooseAiAction,
   createAiPlayers,
   isAiId,
@@ -80,8 +82,9 @@ export function useAiMatch(playerName: string) {
     setPersonalReplay(null);
     eliminatedRef.current = false;
     setEliminated(false);
-    snakeAudio.playStart();
-    const next = startMp(createMpLobby(roster, seed), seed);
+    const next = beginRound(createMpLobby(roster, seed), seed, {
+      resetMatch: true,
+    });
     stateRef.current = next;
     setState(next);
   }, []);
@@ -116,14 +119,21 @@ export function useAiMatch(playerName: string) {
         ];
       }
     }
-    if (state?.status === "replay" || state?.status === "over") {
+    if (
+      state?.status === "replay" ||
+      state?.status === "over" ||
+      state?.status === "countdown"
+    ) {
       personalReplayRef.current = false;
       setPersonalReplay(null);
       historyRef.current = [];
     }
     prevStateRef.current = state;
     const you = state?.snakes.find((snake) => snake.id === AI_YOU_ID);
-    if (you && !you.alive && !eliminatedRef.current) {
+    if (you?.alive) {
+      eliminatedRef.current = false;
+      setEliminated(false);
+    } else if (you && !you.alive && !eliminatedRef.current) {
       eliminatedRef.current = true;
       setEliminated(true);
     }
@@ -154,6 +164,27 @@ export function useAiMatch(playerName: string) {
   }, [personalReplay !== null, state?.status]);
 
   useEffect(() => {
+    if (state?.status !== "countdown") {
+      return;
+    }
+    const id = window.setInterval(() => {
+      const current = stateRef.current;
+      if (current?.status !== "countdown") {
+        return;
+      }
+      const next = advanceCountdown(current);
+      if (next.status === "playing") {
+        snakeAudio.playStart();
+      }
+      stateRef.current = next;
+      setState(next);
+    }, MP_COUNTDOWN_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [state?.status]);
+
+  useEffect(() => {
     if (state?.status !== "playing" && state?.status !== "replay") {
       return;
     }
@@ -168,10 +199,16 @@ export function useAiMatch(playerName: string) {
         frame = window.requestAnimationFrame(step);
         return;
       }
-      const delay = mpTickMs(current);
+      const you = current.snakes.find((snake) => snake.id === AI_YOU_ID);
+      const fast =
+        current.status === "playing" &&
+        you?.alive === false &&
+        !personalReplayRef.current;
+      const delay = aiTickMs(current, fast);
       let next = current;
       let ate = false;
       let died = false;
+      let stepped = 0;
       while (now - last >= delay) {
         last += delay;
         if (next.status === "replay") {
@@ -208,13 +245,16 @@ export function useAiMatch(playerName: string) {
           break;
         }
         next = after;
-        break;
+        stepped += 1;
+        if (!fast || stepped >= 4) {
+          break;
+        }
       }
       if (now - last > delay * 4) {
         last = now - delay;
       }
       if (next !== current) {
-        if (ate) {
+        if (ate && !fast) {
           snakeAudio.playEat();
         }
         if (died) {
@@ -274,7 +314,11 @@ export function useAiMatch(playerName: string) {
     if (!current) {
       return;
     }
-    if (current.status === "playing" || current.status === "replay") {
+    if (
+      current.status === "playing" ||
+      current.status === "replay" ||
+      current.status === "countdown"
+    ) {
       if (!eliminatedRef.current) {
         return;
       }
@@ -284,7 +328,7 @@ export function useAiMatch(playerName: string) {
 
   const replaySlowMo = useCallback(() => {
     const current = stateRef.current;
-    if (!current || current.status !== "over" || current.replay.length === 0) {
+    if (current?.status !== "over" || current.replay.length === 0) {
       return;
     }
     const next = beginReplay(current, current.replay);

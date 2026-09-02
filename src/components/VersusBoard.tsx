@@ -7,9 +7,9 @@ import {
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
+  MP_ROUNDS,
   type MpDeath,
   type MpPlayer,
-  mpRound,
   type MpShot,
   type MpSnake,
   type MpState,
@@ -220,6 +220,12 @@ const OverlayHint = styled.span`
   letter-spacing: 0.04em;
   opacity: 0.85;
   line-height: 1.5;
+`;
+
+const CountNum = styled.span`
+  font-size: 42px;
+  letter-spacing: 0.04em;
+  line-height: 1;
 `;
 
 const Standings = styled.ol`
@@ -557,11 +563,15 @@ export function VersusBoard({
           joinedAt: index,
         }));
   const readyCount = seated.filter((player) => player.ready).length;
-  const waitingOnReady = status !== "playing" && status !== "replay";
+  const waitingOnReady = status === "lobby" || status === "over";
   const connected = link === "connected";
   const canReady = connected && !error && waitingOnReady;
   const you = seated.find((player) => player.id === youId);
   const watchingOut = youOut && (status === "playing" || status === "replay");
+  const lastRoundWinner = state?.roundWinnerId
+    ? (liveSnakes.find((snake) => snake.id === state.roundWinnerId)?.name ??
+      null)
+    : null;
   const takenColors = new Set(
     seated
       .filter((player) => player.id !== youId)
@@ -614,9 +624,9 @@ export function VersusBoard({
         <LevelLabel>
           {slowMo
             ? "Slow-mo"
-            : status === "playing" || status === "over"
-              ? `Round ${mpRound(liveSnakes)}`
-              : `Versus ${seated.length}/4`}
+            : status === "lobby"
+              ? `Versus ${seated.length}/4`
+              : `Round ${state?.matchRound ?? 1}/${MP_ROUNDS}`}
         </LevelLabel>
         <BarRight>
           <BuildMark />
@@ -642,8 +652,10 @@ export function VersusBoard({
           ) : null}
           {!error && watchingOut ? (
             <SpectateBar>
-              You're out
-              <OverlayHint>Enter play again</OverlayHint>
+              You&apos;re out
+              <OverlayHint>
+                {ai ? "Fast-forward" : "Enter play again"}
+              </OverlayHint>
               <Action type="button" onClick={onReady}>
                 Play again
               </Action>
@@ -656,6 +668,17 @@ export function VersusBoard({
             <DeathHint $replay={slowMo}>{deathLine}</DeathHint>
           ) : null}
 
+          {!error && status === "countdown" && state ? (
+            <Overlay>
+              <CountNum>{state.countdown}</CountNum>
+              <OverlayHint>
+                Round {state.matchRound}/{MP_ROUNDS}
+              </OverlayHint>
+              {lastRoundWinner ? (
+                <OverlayHint>{lastRoundWinner} took the last round</OverlayHint>
+              ) : null}
+            </Overlay>
+          ) : null}
           {error ? (
             <Overlay>
               Offline
@@ -670,7 +693,9 @@ export function VersusBoard({
           ) : null}
           {!error &&
           link === "reconnecting" &&
-          (status === "playing" || status === "replay") ? (
+          (status === "playing" ||
+            status === "replay" ||
+            status === "countdown") ? (
             <LinkHint>Reconnecting…</LinkHint>
           ) : null}
           {!error &&
@@ -738,7 +763,10 @@ export function VersusBoard({
                         {snake.id === youId ? " · you" : ""}
                         {state.winnerId === snake.id ? " · win" : ""}
                       </span>
-                      <span>{snake.score}</span>
+                      <span>
+                        {snake.roundWins}
+                        {snake.score > 0 ? ` · ${snake.score}` : ""}
+                      </span>
                     </StandingRow>
                   ))}
                 </Standings>
@@ -796,6 +824,7 @@ export function VersusBoard({
                     {!ai && player.host ? " · host" : ""}
                     {status === "playing" ||
                     status === "replay" ||
+                    status === "countdown" ||
                     status === "over"
                       ? snake?.alive
                         ? ""
@@ -808,6 +837,7 @@ export function VersusBoard({
                 <RosterMeta>
                   {status === "playing" ||
                   status === "replay" ||
+                  status === "countdown" ||
                   status === "over" ? (
                     <PowerBar
                       aria-label={`${player.name} power ${snake?.power ?? 0}`}
@@ -831,7 +861,7 @@ export function VersusBoard({
                       ? player.ready
                         ? "Ready"
                         : "Wait"
-                      : (snake?.score ?? "")}
+                      : `${snake?.roundWins ?? 0}`}
                   </span>
                 </RosterMeta>
               </RosterRow>

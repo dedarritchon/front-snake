@@ -1,22 +1,56 @@
-import {describe, expect, it} from 'vitest';
+import { describe, expect, it } from "vitest";
 
 import {
   createMpLobby,
   MP_POWER_COST,
+  MP_TICK_MS,
   type MpPlayer,
   type MpState,
   startMp,
-} from './multiplayerEngine';
-import {chooseAiAction, createAiPlayers} from './versusAi';
+} from "./multiplayerEngine";
+import {
+  AI_FAST_TICK_MS,
+  aiTickMs,
+  chooseAiAction,
+  createAiPlayers,
+} from "./versusAi";
 
 const TWO: MpPlayer[] = [
-  {id: 'you', name: 'You', color: '#111', host: true, ready: true, joinedAt: 1},
-  {id: 'hex', name: 'HEX', color: '#222', host: false, ready: true, joinedAt: 2},
+  {
+    id: "you",
+    name: "You",
+    color: "#111",
+    host: true,
+    ready: true,
+    joinedAt: 1,
+  },
+  {
+    id: "hex",
+    name: "HEX",
+    color: "#222",
+    host: false,
+    ready: true,
+    joinedAt: 2,
+  },
 ];
 
 const HUNT: MpPlayer[] = [
-  {id: 'you', name: 'You', color: '#111', host: true, ready: true, joinedAt: 1},
-  {id: 'rom', name: 'ROM', color: '#222', host: false, ready: true, joinedAt: 2},
+  {
+    id: "you",
+    name: "You",
+    color: "#111",
+    host: true,
+    ready: true,
+    joinedAt: 1,
+  },
+  {
+    id: "rom",
+    name: "ROM",
+    color: "#222",
+    host: false,
+    ready: true,
+    joinedAt: 2,
+  },
 ];
 
 function place(
@@ -26,301 +60,313 @@ function place(
   return patch(startMp(createMpLobby(players, 1)));
 }
 
-describe('createAiPlayers', () => {
-  it('seats you plus HEX ROM LCD with unique colors', () => {
-    const roster = createAiPlayers({name: 'Ann', color: '#2a3816'});
+describe("createAiPlayers", () => {
+  it("seats you plus HEX ROM LCD with unique colors", () => {
+    const roster = createAiPlayers({ name: "Ann", color: "#2a3816" });
     expect(roster.map((player) => player.id)).toEqual([
-      'you',
-      'hex',
-      'rom',
-      'lcd',
+      "you",
+      "hex",
+      "rom",
+      "lcd",
     ]);
     expect(new Set(roster.map((player) => player.color)).size).toBe(4);
     expect(roster[0].host).toBe(true);
   });
 });
 
-describe('chooseAiAction', () => {
-  it('turns away from a wall', () => {
+describe("aiTickMs", () => {
+  it("fast-forwards leftover AI after you die", () => {
+    const playing = startMp(
+      createMpLobby(createAiPlayers({ name: "Ann", color: "#111" }), 1),
+    );
+    expect(aiTickMs(playing, false)).toBe(MP_TICK_MS);
+    expect(aiTickMs(playing, true)).toBe(AI_FAST_TICK_MS);
+    expect(AI_FAST_TICK_MS).toBeLessThan(MP_TICK_MS / 4);
+    expect(aiTickMs({ ...playing, status: "replay" }, true)).toBe(420);
+  });
+});
+
+describe("chooseAiAction", () => {
+  it("turns away from a wall", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 14, y: 12}],
+      foods: [{ x: 14, y: 12 }],
       snakes: [
         playing.snakes[0],
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'left',
-          pending: 'left',
+          id: "hex",
+          direction: "left",
+          pending: "left",
           body: [
-            {x: 0, y: 10},
-            {x: 1, y: 10},
-            {x: 2, y: 10},
+            { x: 0, y: 10 },
+            { x: 1, y: 10 },
+            { x: 2, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).not.toBe('left');
+    expect(chooseAiAction(state, "hex").dir).not.toBe("left");
   });
 
-  it('walks toward a planted apple', () => {
+  it("walks toward a planted apple", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 10, y: 10}],
+      foods: [{ x: 10, y: 10 }],
       snakes: [
         {
           ...playing.snakes[0],
           body: [
-            {x: 20, y: 20},
-            {x: 21, y: 20},
-            {x: 22, y: 20},
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'right',
-          pending: 'right',
+          id: "hex",
+          direction: "right",
+          pending: "right",
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).toBe('right');
+    expect(chooseAiAction(state, "hex").dir).toBe("right");
   });
 
-  it('refuses a reverse even if the apple is behind', () => {
+  it("refuses a reverse even if the apple is behind", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 2, y: 10}],
+      foods: [{ x: 2, y: 10 }],
       snakes: [
         playing.snakes[0],
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'right',
-          pending: 'right',
+          id: "hex",
+          direction: "right",
+          pending: "right",
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).not.toBe('left');
+    expect(chooseAiAction(state, "hex").dir).not.toBe("left");
   });
 
-  it('fires at a lined-up head when charged', () => {
+  it("fires at a lined-up head when charged", () => {
     const state = place(HUNT, (playing) => ({
       ...playing,
-      foods: [{x: 0, y: 0}],
+      foods: [{ x: 0, y: 0 }],
       snakes: [
         {
           ...playing.snakes[0],
-          direction: 'right',
-          pending: 'right',
+          direction: "right",
+          pending: "right",
           body: [
-            {x: 7, y: 10},
-            {x: 7, y: 11},
-            {x: 7, y: 12},
+            { x: 7, y: 10 },
+            { x: 7, y: 11 },
+            { x: 7, y: 12 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'rom',
-          direction: 'right',
-          pending: 'right',
+          id: "rom",
+          direction: "right",
+          pending: "right",
           power: MP_POWER_COST,
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'rom')).toEqual({dir: 'right', fire: true});
+    expect(chooseAiAction(state, "rom")).toEqual({ dir: "right", fire: true });
   });
 
-  it('fires to eat an apple on the ray', () => {
+  it("fires to eat an apple on the ray", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 7, y: 10}],
+      foods: [{ x: 7, y: 10 }],
       snakes: [
         {
           ...playing.snakes[0],
           body: [
-            {x: 20, y: 20},
-            {x: 21, y: 20},
-            {x: 22, y: 20},
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'right',
-          pending: 'right',
+          id: "hex",
+          direction: "right",
+          pending: "right",
           power: MP_POWER_COST,
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').fire).toBe(true);
+    expect(chooseAiAction(state, "hex").fire).toBe(true);
   });
 
-  it('does not fire into a body', () => {
+  it("does not fire into a body", () => {
     const state = place(HUNT, (playing) => ({
       ...playing,
-      foods: [{x: 0, y: 0}],
+      foods: [{ x: 0, y: 0 }],
       snakes: [
         {
           ...playing.snakes[0],
-          direction: 'up',
-          pending: 'up',
+          direction: "up",
+          pending: "up",
           body: [
-            {x: 7, y: 8},
-            {x: 7, y: 10},
-            {x: 7, y: 11},
+            { x: 7, y: 8 },
+            { x: 7, y: 10 },
+            { x: 7, y: 11 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'rom',
-          direction: 'right',
-          pending: 'right',
+          id: "rom",
+          direction: "right",
+          pending: "right",
           power: MP_POWER_COST,
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'rom').fire).toBe(false);
+    expect(chooseAiAction(state, "rom").fire).toBe(false);
   });
 
-  it('turns toward a far side apple instead of cruising past', () => {
+  it("turns toward a far side apple instead of cruising past", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 5, y: 18}],
+      foods: [{ x: 5, y: 18 }],
       snakes: [
         {
           ...playing.snakes[0],
           body: [
-            {x: 20, y: 20},
-            {x: 21, y: 20},
-            {x: 22, y: 20},
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'right',
-          pending: 'right',
+          id: "hex",
+          direction: "right",
+          pending: "right",
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).toBe('down');
+    expect(chooseAiAction(state, "hex").dir).toBe("down");
   });
 
-  it('takes a wall apple instead of peeling away from it', () => {
+  it("takes a wall apple instead of peeling away from it", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 0, y: 10}],
+      foods: [{ x: 0, y: 10 }],
       snakes: [
         {
           ...playing.snakes[0],
           body: [
-            {x: 20, y: 20},
-            {x: 21, y: 20},
-            {x: 22, y: 20},
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'left',
-          pending: 'left',
+          id: "hex",
+          direction: "left",
+          pending: "left",
           body: [
-            {x: 2, y: 10},
-            {x: 3, y: 10},
-            {x: 4, y: 10},
+            { x: 2, y: 10 },
+            { x: 3, y: 10 },
+            { x: 4, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).toBe('left');
+    expect(chooseAiAction(state, "hex").dir).toBe("left");
   });
 
-  it('turns toward a close side apple', () => {
+  it("turns toward a close side apple", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 5, y: 6}],
+      foods: [{ x: 5, y: 6 }],
       snakes: [
         {
           ...playing.snakes[0],
           body: [
-            {x: 20, y: 20},
-            {x: 21, y: 20},
-            {x: 22, y: 20},
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'right',
-          pending: 'right',
+          id: "hex",
+          direction: "right",
+          pending: "right",
           body: [
-            {x: 5, y: 10},
-            {x: 4, y: 10},
-            {x: 3, y: 10},
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).toBe('up');
+    expect(chooseAiAction(state, "hex").dir).toBe("up");
   });
 
-  it('peels off a wall toward the middle instead of running the border', () => {
+  it("peels off a wall toward the middle instead of running the border", () => {
     const state = place(TWO, (playing) => ({
       ...playing,
-      foods: [{x: 14, y: 12}],
+      foods: [{ x: 14, y: 12 }],
       snakes: [
         {
           ...playing.snakes[0],
           body: [
-            {x: 20, y: 20},
-            {x: 21, y: 20},
-            {x: 22, y: 20},
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
           ],
         },
         {
           ...playing.snakes[1],
-          id: 'hex',
-          direction: 'down',
-          pending: 'down',
+          id: "hex",
+          direction: "down",
+          pending: "down",
           body: [
-            {x: 0, y: 10},
-            {x: 0, y: 9},
-            {x: 0, y: 8},
+            { x: 0, y: 10 },
+            { x: 0, y: 9 },
+            { x: 0, y: 8 },
           ],
         },
       ],
     }));
-    expect(chooseAiAction(state, 'hex').dir).toBe('right');
+    expect(chooseAiAction(state, "hex").dir).toBe("right");
   });
 });

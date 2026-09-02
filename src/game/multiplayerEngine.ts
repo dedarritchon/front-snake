@@ -19,8 +19,12 @@ export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = SNAKE_COLORS;
 export const MP_POWER_COST = 3;
 export const MP_FIRE_COOLDOWN = 2;
+export const MP_ROUNDS = 10;
+export const MP_WIN_LENGTH = 20;
+export const MP_COUNTDOWN_MS = 1000;
+export const MP_COUNTDOWN_START = 3;
 
-export type MpStatus = "lobby" | "playing" | "replay" | "over";
+export type MpStatus = "lobby" | "countdown" | "playing" | "replay" | "over";
 export type MpDeathCause = "wall" | "self" | "body" | "head" | "left" | "shot";
 
 export interface MpDeath {
@@ -63,6 +67,7 @@ export interface MpSnake {
   power: number;
   queuedFires: number;
   fireCooldown: number;
+  roundWins: number;
 }
 
 export interface MpState {
@@ -71,6 +76,9 @@ export interface MpState {
   shots: MpShot[];
   status: MpStatus;
   winnerId: string | null;
+  matchRound: number;
+  countdown: number;
+  roundWinnerId: string | null;
   seed: number;
   rngState: number;
   tick: number;
@@ -238,7 +246,10 @@ export function keepLocalIntent(
   local: MpState | null,
   playerId: string,
 ): MpState {
-  if (!local || host.status !== "playing" || local.status !== "playing") {
+  if (
+    host.status !== local?.status ||
+    (host.status !== "playing" && host.status !== "countdown")
+  ) {
     return host;
   }
   const mine = local.snakes.find((snake) => snake.id === playerId);
@@ -275,6 +286,7 @@ interface MpWireSnake {
   queuedFires?: number;
   fireCooldown?: number;
   pendingFire?: boolean;
+  roundWins?: number;
 }
 
 interface MpWireSnapshot {
@@ -289,6 +301,9 @@ export interface MpWireState {
   seed: number;
   rngState: number;
   winnerId?: string | null;
+  matchRound?: number;
+  countdown?: number;
+  roundWinnerId?: string | null;
   hostLeft?: boolean;
   replayIndex?: number;
   snakes: MpWireSnake[];
@@ -362,6 +377,9 @@ function packSnake(snake: MpSnake): MpWireSnake {
   if (snake.fireCooldown > 0) {
     packed.fireCooldown = snake.fireCooldown;
   }
+  if (snake.roundWins > 0) {
+    packed.roundWins = snake.roundWins;
+  }
   return packed;
 }
 
@@ -404,6 +422,10 @@ function unpackSnake(value: unknown): MpSnake | null {
       typeof row.fireCooldown === "number"
         ? Math.max(0, Math.floor(row.fireCooldown))
         : 0,
+    roundWins:
+      typeof row.roundWins === "number"
+        ? Math.max(0, Math.floor(row.roundWins))
+        : 0,
   };
 }
 
@@ -438,6 +460,7 @@ function unpackSnapshot(value: unknown): MpSnapshot | null {
 function isMpStatus(value: unknown): value is MpStatus {
   return (
     value === "lobby" ||
+    value === "countdown" ||
     value === "playing" ||
     value === "replay" ||
     value === "over"
@@ -455,6 +478,13 @@ export function toWireState(state: MpState): MpWireState {
   };
   if (state.winnerId) {
     wire.winnerId = state.winnerId;
+  }
+  wire.matchRound = state.matchRound;
+  if (state.countdown > 0) {
+    wire.countdown = state.countdown;
+  }
+  if (state.roundWinnerId) {
+    wire.roundWinnerId = state.roundWinnerId;
   }
   if (state.hostLeft) {
     wire.hostLeft = true;
@@ -530,6 +560,10 @@ export function fromWireState(payload: unknown): MpState | null {
     lastDeaths,
     replay,
     replayIndex: typeof row.replayIndex === "number" ? row.replayIndex : 0,
+    matchRound: typeof row.matchRound === "number" ? row.matchRound : 1,
+    countdown: typeof row.countdown === "number" ? row.countdown : 0,
+    roundWinnerId:
+      typeof row.roundWinnerId === "string" ? row.roundWinnerId : null,
   };
 }
 
@@ -691,6 +725,7 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
       power: 0,
       queuedFires: 0,
       fireCooldown: 0,
+      roundWins: 0,
     };
   });
 
@@ -700,6 +735,9 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     shots: [],
     status: "lobby",
     winnerId: null,
+    matchRound: 1,
+    countdown: 0,
+    roundWinnerId: null,
     seed,
     rngState: rng.state(),
     tick: 0,
@@ -712,12 +750,8 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
   };
 }
 
-export function startMp(state: MpState, seed = state.seed): MpState {
-  if (state.snakes.length < 2) {
-    return state;
-  }
-  const rng = createRng(seed);
-  const snakes = state.snakes.map((snake, index) => {
+function respawnSnakes(from: MpSnake[], resetMatch: boolean): MpSnake[] {
+  return from.map((snake, index) => {
     const spawn = SPAWNS[index] ?? SPAWNS[0];
     return {
       ...snake,
@@ -729,24 +763,58 @@ export function startMp(state: MpState, seed = state.seed): MpState {
       power: 0,
       queuedFires: 0,
       fireCooldown: 0,
+      roundWins: resetMatch ? 0 : snake.roundWins,
     };
   });
+}
+
+export function beginRound(
+  state: MpState,
+  seed: number,
+  options: { resetMatch: boolean },
+): MpState {
+  if (state.snakes.length < 2) {
+    return state;
+  }
+  const rng = createRng(seed);
+  const snakes = respawnSnakes(state.snakes, options.resetMatch);
   const foods = refillFoods(allBodies(snakes), [], 0, rng);
   return {
     ...state,
     snakes,
     foods,
     shots: [],
-    status: "playing",
+    status: "countdown",
+    countdown: MP_COUNTDOWN_START,
+    matchRound: options.resetMatch ? 1 : state.matchRound + 1,
     winnerId: null,
+    roundWinnerId: options.resetMatch ? null : state.roundWinnerId,
     seed,
     rngState: rng.state(),
     tick: 0,
     hostLeft: false,
-    lastDeaths: [],
+    lastDeaths: options.resetMatch ? [] : state.lastDeaths,
     replay: [],
     replayIndex: 0,
   };
+}
+
+export function advanceCountdown(state: MpState): MpState {
+  if (state.status !== "countdown") {
+    return state;
+  }
+  if (state.countdown > 1) {
+    return { ...state, countdown: state.countdown - 1 };
+  }
+  return { ...state, status: "playing", countdown: 0 };
+}
+
+export function startMp(state: MpState, seed = state.seed): MpState {
+  const next = beginRound(state, seed, { resetMatch: true });
+  if (next.status !== "countdown") {
+    return next;
+  }
+  return { ...next, status: "playing", countdown: 0 };
 }
 
 export function queueMpInput(
@@ -754,7 +822,7 @@ export function queueMpInput(
   playerId: string,
   next: Direction,
 ): MpState {
-  if (state.status !== "playing") {
+  if (state.status !== "playing" && state.status !== "countdown") {
     return state;
   }
   return {
@@ -792,10 +860,12 @@ export function queueMpFire(state: MpState, playerId: string): MpState {
 
 export function killPlayer(state: MpState, playerId: string): MpState {
   if (state.status !== "playing") {
-    return {
-      ...state,
-      snakes: state.snakes.filter((snake) => snake.id !== playerId),
-    };
+    const snakes = state.snakes.filter((snake) => snake.id !== playerId);
+    const next = { ...state, snakes };
+    if (state.status === "countdown" && snakes.length < 2) {
+      return { ...next, status: "over", winnerId: matchWinnerId(snakes) };
+    }
+    return next;
   }
   const snakes = state.snakes.map((snake) =>
     snake.id === playerId ? { ...snake, alive: false } : snake,
@@ -808,36 +878,105 @@ export function killPlayer(state: MpState, playerId: string): MpState {
 }
 
 export function markHostLeft(state: MpState): MpState {
-  if (state.status === "lobby") {
+  if (state.status === "lobby" || state.status === "countdown") {
     return { ...state, hostLeft: true, status: "over" };
   }
   if (state.status !== "playing") {
-    return { ...state, hostLeft: true };
+    return { ...state, hostLeft: true, status: "over" };
   }
-  return resolveWinner({ ...state, hostLeft: true, status: "over" });
+  return resolveWinner({ ...state, hostLeft: true });
+}
+
+function matchWinnerId(snakes: MpSnake[]): string | null {
+  const ranked = roundStandings(snakes);
+  if (ranked.length === 0) {
+    return null;
+  }
+  const top = ranked[0];
+  const second = ranked[1];
+  if (
+    ranked.length > 1 &&
+    second.roundWins === top.roundWins &&
+    second.score === top.score
+  ) {
+    return null;
+  }
+  return top.id;
+}
+
+function finishRound(state: MpState, winnerId: string | null): MpState {
+  const snakes = winnerId
+    ? state.snakes.map((snake) =>
+        snake.id === winnerId
+          ? { ...snake, roundWins: snake.roundWins + 1 }
+          : snake,
+      )
+    : state.snakes;
+  const awarded: MpState = {
+    ...state,
+    snakes,
+    winnerId,
+    roundWinnerId: winnerId,
+  };
+  if (state.hostLeft || state.matchRound >= MP_ROUNDS) {
+    return {
+      ...awarded,
+      status: "over",
+      winnerId: matchWinnerId(snakes),
+    };
+  }
+  const leftIds = new Set(
+    state.lastDeaths
+      .filter((death) => death.cause === "left")
+      .map((death) => death.playerId),
+  );
+  const remaining = snakes.filter((snake) => !leftIds.has(snake.id));
+  if (remaining.length < 2) {
+    return {
+      ...awarded,
+      status: "over",
+      winnerId: matchWinnerId(snakes),
+    };
+  }
+  return beginRound({ ...awarded, snakes: remaining }, state.rngState, {
+    resetMatch: false,
+  });
 }
 
 function resolveWinner(state: MpState): MpState {
-  const alive = state.snakes.filter((snake) => snake.alive);
-  if (alive.length > 1 && !state.hostLeft) {
-    return state;
-  }
-  if (alive.length === 1 && state.snakes.length > 1) {
+  if (state.hostLeft) {
     return {
       ...state,
       status: "over",
-      winnerId: alive[0].id,
+      winnerId: matchWinnerId(state.snakes),
     };
   }
-  return {
-    ...state,
-    status: "over",
-    winnerId: null,
-  };
+  const alive = state.snakes.filter((snake) => snake.alive);
+  const longEnough = alive
+    .filter((snake) => snake.body.length >= MP_WIN_LENGTH)
+    .sort((a, b) => {
+      if (b.body.length !== a.body.length) {
+        return b.body.length - a.body.length;
+      }
+      return b.score - a.score;
+    });
+  if (longEnough.length > 0) {
+    return finishRound(state, longEnough[0].id);
+  }
+  if (alive.length > 1) {
+    return state;
+  }
+  if (alive.length === 1 && state.snakes.length > 1) {
+    return finishRound(state, alive[0].id);
+  }
+  return finishRound(state, null);
 }
 
 export function roundStandings(snakes: MpSnake[]): MpSnake[] {
   return snakes.slice().sort((a, b) => {
+    if (b.roundWins !== a.roundWins) {
+      return b.roundWins - a.roundWins;
+    }
     if (b.score !== a.score) {
       return b.score - a.score;
     }
@@ -904,7 +1043,7 @@ function resolveShot(
       rememberDeath(deaths, snake.id, "shot", shot.ownerId);
       return { keep: false, foods, appleOwner: null };
     }
-    const leftover = body.slice(hitIndex + 1);
+    const leftover = body.slice(0, hitIndex);
     if (leftover.length === 0) {
       dying.add(snake.id);
       rememberDeath(deaths, snake.id, "shot", shot.ownerId);
@@ -1005,12 +1144,6 @@ export function tickMp(state: MpState): MpState {
   for (const id of dying) {
     nextHead.delete(id);
   }
-  for (const snake of alive) {
-    const cut = bodies.get(snake.id);
-    if (cut && cut.length !== snake.body.length && !dying.has(snake.id)) {
-      nextHead.delete(snake.id);
-    }
-  }
 
   const byCell = new Map<string, string[]>();
   for (const [id, head] of nextHead) {
@@ -1071,19 +1204,15 @@ export function tickMp(state: MpState): MpState {
 
   const occupied = new Set<string>();
   for (const snake of state.snakes) {
-    const cut = bodies.get(snake.id);
-    if (cut && cut.length !== snake.body.length && !dying.has(snake.id)) {
-      for (const point of cut) {
-        occupied.add(cellKey(point));
-      }
-      continue;
-    }
+    const cut = bodies.get(snake.id) ?? snake.body;
+    const clipped = cut.length !== snake.body.length && !dying.has(snake.id);
+    const segments = clipped ? cut : snake.body;
     const skipTail =
       snake.alive &&
       !dying.has(snake.id) &&
       !eating.has(snake.id) &&
-      snake.body.length > 0;
-    const body = skipTail ? snake.body.slice(0, -1) : snake.body;
+      segments.length > 0;
+    const body = skipTail ? segments.slice(0, -1) : segments;
     for (const point of body) {
       occupied.add(cellKey(point));
     }
@@ -1091,10 +1220,6 @@ export function tickMp(state: MpState): MpState {
 
   for (const snake of alive) {
     if (dying.has(snake.id)) {
-      continue;
-    }
-    const cut = bodies.get(snake.id);
-    if (cut && cut.length !== snake.body.length) {
       continue;
     }
     const head = nextHead.get(snake.id);
@@ -1165,30 +1290,17 @@ export function tickMp(state: MpState): MpState {
         score: snake.score + apples * SCORE_PER_FOOD,
       };
     }
-    const leftover = bodies.get(snake.id);
-    if (leftover && leftover.length !== snake.body.length) {
-      const lost = snake.body.length - leftover.length;
-      return {
-        ...snake,
-        body: leftover,
-        queuedFires,
-        fireCooldown,
-        score: Math.max(
-          0,
-          snake.score - lost * SCORE_PER_FOOD + apples * SCORE_PER_FOOD,
-        ),
-        power: chargePower(powerBase, apples),
-      };
-    }
+    const leftover = bodies.get(snake.id) ?? snake.body;
+    const clipped = leftover.length !== snake.body.length;
+    const base = leftover;
+    const lost = clipped ? snake.body.length - leftover.length : 0;
     const dir = nextDir.get(snake.id) ?? snake.direction;
     const head = nextHead.get(snake.id);
     if (!head) {
       return { ...snake, alive: false, queuedFires: 0, fireCooldown: 0 };
     }
     const ate = eating.has(snake.id);
-    const body = ate
-      ? [head, ...snake.body]
-      : [head, ...snake.body.slice(0, -1)];
+    const body = ate ? [head, ...base] : [head, ...base.slice(0, -1)];
     return {
       ...snake,
       body,
@@ -1196,7 +1308,10 @@ export function tickMp(state: MpState): MpState {
       pending: dir,
       queuedFires,
       fireCooldown,
-      score: snake.score + apples * SCORE_PER_FOOD,
+      score: Math.max(
+        0,
+        snake.score - lost * SCORE_PER_FOOD + apples * SCORE_PER_FOOD,
+      ),
       power: chargePower(powerBase, apples),
     };
   });

@@ -2,30 +2,43 @@ import {
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
+  MP_REPLAY_TICK_MS,
+  MP_TICK_MS,
   type MpPlayer,
   type MpSnake,
   type MpState,
-} from './multiplayerEngine';
-import {nextFreeColor} from './snakeColors';
-import type {Direction, Point} from './types';
-import {DIRECTION_DELTA, OPPOSITE} from './types';
+} from "./multiplayerEngine";
+import { nextFreeColor } from "./snakeColors";
+import type { Direction, Point } from "./types";
+import { DIRECTION_DELTA, OPPOSITE } from "./types";
 
-export const AI_YOU_ID = 'you';
+export const AI_YOU_ID = "you";
+export const AI_FAST_TICK_MS = 20;
+
+export function aiTickMs(state: MpState, youDead: boolean): number {
+  if (state.status === "replay") {
+    return MP_REPLAY_TICK_MS;
+  }
+  if (state.status === "playing" && youDead) {
+    return AI_FAST_TICK_MS;
+  }
+  return MP_TICK_MS;
+}
 
 export const AI_BOTS = [
-  {id: 'hex', name: 'HEX'},
-  {id: 'rom', name: 'ROM'},
-  {id: 'lcd', name: 'LCD'},
+  { id: "hex", name: "HEX" },
+  { id: "rom", name: "ROM" },
+  { id: "lcd", name: "LCD" },
 ] as const;
 
-export type AiKind = 'farmer' | 'hunter' | 'flanker';
+export type AiKind = "farmer" | "hunter" | "flanker";
 
 export interface AiAction {
   dir: Direction;
   fire: boolean;
 }
 
-const TURN: Direction[] = ['up', 'right', 'down', 'left'];
+const TURN: Direction[] = ["up", "right", "down", "left"];
 const INF = 10_000;
 
 function cellKey(point: Point): string {
@@ -38,7 +51,7 @@ function pointsEqual(a: Point, b: Point): boolean {
 
 function ahead(point: Point, direction: Direction): Point {
   const delta = DIRECTION_DELTA[direction];
-  return {x: point.x + delta.x, y: point.y + delta.y};
+  return { x: point.x + delta.x, y: point.y + delta.y };
 }
 
 function inBounds(point: Point): boolean {
@@ -60,14 +73,14 @@ function candidates(direction: Direction): Direction[] {
 }
 
 export function aiKind(playerId: string): AiKind | null {
-  if (playerId === 'hex') {
-    return 'farmer';
+  if (playerId === "hex") {
+    return "farmer";
   }
-  if (playerId === 'rom') {
-    return 'hunter';
+  if (playerId === "rom") {
+    return "hunter";
   }
-  if (playerId === 'lcd') {
-    return 'flanker';
+  if (playerId === "lcd") {
+    return "flanker";
   }
   return null;
 }
@@ -110,8 +123,7 @@ function occupancy(state: MpState, self: MpSnake, next: Point): Set<string> {
   const eating = state.foods.some((food) => pointsEqual(food, next));
   const blocked = new Set<string>();
   for (const snake of state.snakes) {
-    const skipTail =
-      snake.id === self.id && !eating && snake.body.length > 0;
+    const skipTail = snake.id === self.id && !eating && snake.body.length > 0;
     const body = skipTail ? snake.body.slice(0, -1) : snake.body;
     for (const point of body) {
       blocked.add(cellKey(point));
@@ -134,7 +146,7 @@ function bfsDist(
     return 0;
   }
   const seen = new Set<string>([cellKey(start)]);
-  const queue: {point: Point; dist: number}[] = [{point: start, dist: 0}];
+  const queue: { point: Point; dist: number }[] = [{ point: start, dist: 0 }];
   let cursor = 0;
   while (cursor < queue.length) {
     const node = queue[cursor];
@@ -152,7 +164,7 @@ function bfsDist(
         return node.dist + 1;
       }
       seen.add(key);
-      queue.push({point: step, dist: node.dist + 1});
+      queue.push({ point: step, dist: node.dist + 1 });
     }
   }
   return INF;
@@ -178,7 +190,7 @@ function flood(start: Point, blocked: Set<string>, cap = 48): number {
   return seen.size;
 }
 
-type RayHit = 'head' | 'food' | 'body' | 'wall';
+type RayHit = "head" | "food" | "body" | "wall";
 
 function rayHit(
   start: Point,
@@ -189,17 +201,21 @@ function rayHit(
   let cursor = start;
   for (let i = 0; i < MP_GRID_WIDTH + MP_GRID_HEIGHT; i += 1) {
     if (!inBounds(cursor)) {
-      return 'wall';
+      return "wall";
     }
     if (state.foods.some((food) => pointsEqual(food, cursor))) {
-      return 'food';
+      return "food";
     }
     for (const snake of state.snakes) {
       if (!snake.body[0]) {
         continue;
       }
-      if (snake.id !== ownerId && snake.alive && pointsEqual(snake.body[0], cursor)) {
-        return 'head';
+      if (
+        snake.id !== ownerId &&
+        snake.alive &&
+        pointsEqual(snake.body[0], cursor)
+      ) {
+        return "head";
       }
       const bodyHit = snake.body.some((segment, index) => {
         if (index === 0 && snake.id !== ownerId && snake.alive) {
@@ -208,12 +224,12 @@ function rayHit(
         return pointsEqual(segment, cursor);
       });
       if (bodyHit) {
-        return 'body';
+        return "body";
       }
     }
     cursor = ahead(cursor, direction);
   }
-  return 'wall';
+  return "wall";
 }
 
 function shotSpawn(head: Point, direction: Direction): Point {
@@ -242,12 +258,12 @@ function foodGoals(
     for (const other of others) {
       rival = Math.min(rival, manhattan(other.body[0], food));
     }
-    return {food, mine, rival};
+    return { food, mine, rival };
   });
   const reachable = ranked.filter((row) => row.mine < INF);
   const pool = reachable.length > 0 ? reachable : ranked;
   const winnable = pool.filter((row) => row.mine <= row.rival + 1);
-  if (kind === 'flanker') {
+  if (kind === "flanker") {
     const open = pool.filter((row) => row.mine <= row.rival);
     if (open.length > 0) {
       return open.map((row) => row.food);
@@ -279,7 +295,10 @@ function edgeCost(point: Point): number {
   return 0;
 }
 
-function projectedHeads(state: MpState, selfId: string): {
+function projectedHeads(
+  state: MpState,
+  selfId: string,
+): {
   contested: Set<string>;
   cuts: Set<string>;
 } {
@@ -297,19 +316,19 @@ function projectedHeads(state: MpState, selfId: string): {
     contested.add(cellKey(next));
     cuts.add(cellKey(ahead(next, dir)));
   }
-  return {contested, cuts};
+  return { contested, cuts };
 }
 
 export function chooseAiAction(state: MpState, playerId: string): AiAction {
-  const kind = aiKind(playerId) ?? 'farmer';
+  const kind = aiKind(playerId) ?? "farmer";
   const self = state.snakes.find((snake) => snake.id === playerId);
-  if (!self?.alive || state.status !== 'playing' || !self.body[0]) {
-    return {dir: self?.direction ?? 'right', fire: false};
+  if (!self?.alive || state.status !== "playing" || !self.body[0]) {
+    return { dir: self?.direction ?? "right", fire: false };
   }
 
   const head = self.body[0];
-  const {contested, cuts} = projectedHeads(state, self.id);
-  const lookBlocked = occupancy(state, self, {x: -1, y: -1});
+  const { contested, cuts } = projectedHeads(state, self.id);
+  const lookBlocked = occupancy(state, self, { x: -1, y: -1 });
   const goals = foodGoals(state, self, kind, lookBlocked);
   let bestDir = self.direction;
   let bestScore = -INF;
@@ -346,15 +365,15 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
       score -= 4_000;
     }
     if (
-      kind !== 'farmer' &&
+      kind !== "farmer" &&
       cuts.has(nextKey) &&
       self.power >= MP_POWER_COST &&
       !closeFood
     ) {
       score += 900;
     }
-    if (hit === 'head' && self.power >= MP_POWER_COST) {
-      score += kind === 'hunter' ? 20_000 : 6_000;
+    if (hit === "head" && self.power >= MP_POWER_COST) {
+      score += kind === "hunter" ? 20_000 : 6_000;
     }
     if (score > bestScore) {
       bestScore = score;
@@ -364,7 +383,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
 
   const fireHit = rayHit(shotSpawn(head, bestDir), bestDir, state, self.id);
   const fire =
-    self.power >= MP_POWER_COST && (fireHit === 'head' || fireHit === 'food');
+    self.power >= MP_POWER_COST && (fireHit === "head" || fireHit === "food");
 
-  return {dir: bestDir, fire};
+  return { dir: bestDir, fire };
 }
