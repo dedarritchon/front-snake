@@ -9,6 +9,7 @@ import {
   beginReplay,
   beginRound,
   createMpLobby,
+  createPackedSnapshotRing,
   createPlayerId,
   createRoomId,
   describeDeaths,
@@ -17,12 +18,14 @@ import {
   keepLocalIntent,
   killPlayer,
   markHostLeft,
+  MP_BOMB_FUSE_TICKS,
   MP_COUNTDOWN_START,
   MP_FIRE_COOLDOWN,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_MAX_PLAYERS,
   MP_POWER_COST,
+  MP_REPLAY_FRAMES,
   MP_ROUNDS,
   MP_TICK_MS,
   MP_TURBO_TICKS,
@@ -30,9 +33,11 @@ import {
   mpRound,
   mpTickMs,
   normalizeRoomId,
+  queueMpBomb,
   queueMpFire,
   queueMpInput,
   queueMpTurbo,
+  retainReplay,
   roundStandings,
   shouldPersonalSlowMo,
   shouldSlowMo,
@@ -559,6 +564,25 @@ describe("multiplayerEngine", () => {
     over = advanceReplay(over);
     expect(over.status).toBe("over");
     expect(fromWireState(toWireState(over))?.replay).toHaveLength(2);
+    expect(toWireState(over, { includeReplay: false }).replay).toBeUndefined();
+    const omitted = fromWireState(toWireState(over, { includeReplay: false }));
+    expect(omitted?.replay).toEqual([]);
+    if (omitted) {
+      expect(retainReplay(omitted, over).replay).toHaveLength(2);
+    }
+  });
+
+  it("keeps a packed history ring of the last replay frames", () => {
+    const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    const ring = createPackedSnapshotRing();
+    for (let i = 0; i < MP_REPLAY_FRAMES + 3; i += 1) {
+      ring.push({ ...playing, tick: i });
+    }
+    const frames = ring.unpack();
+    expect(frames).toHaveLength(MP_REPLAY_FRAMES);
+    expect(frames[0].snakes[0].body).toEqual(playing.snakes[0].body);
+    ring.clear();
+    expect(ring.unpack()).toEqual([]);
   });
 
   it("packs bodies so live ticks send less than a full snapshot", () => {
@@ -625,6 +649,7 @@ describe("multiplayerEngine", () => {
     expect(keepLocalIntent(charged, fired, "b").snakes[1].queuedFires).toBe(1);
     const later = { ...charged, tick: charged.tick + 1 };
     expect(keepLocalIntent(later, fired, "b").snakes[1].queuedFires).toBe(0);
+    expect(keepLocalIntent(later, local, "b").snakes[1].pending).toBe("down");
   });
 
   it("does not slow-mo a disconnect", () => {
@@ -1267,5 +1292,196 @@ describe("multiplayerEngine", () => {
     expect(describeDeaths(next.lastDeaths, next.snakes)).toBe(
       "A and B crashed",
     );
+  });
+
+  it("plants a bomb at the current tail and spends a power bar", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          power: MP_POWER_COST,
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "left",
+          pending: "left",
+          body: [
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
+          ],
+        },
+      ],
+    };
+    state = tickMp(queueMpBomb(state, "a"));
+    expect(state.bombs).toEqual([
+      { ownerId: "a", x: 3, y: 10, fuse: MP_BOMB_FUSE_TICKS - 1 },
+    ]);
+    expect(state.snakes[0].body[0]).toEqual({ x: 6, y: 10 });
+    expect(state.snakes[0].power).toBe(0);
+    expect(state.snakes[0].queuedBombs).toBe(0);
+  });
+
+  it("counts down a bomb fuse and ignores snakes outside the blast", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS, 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      bombs: [{ ownerId: "a", x: 10, y: 10, fuse: 2 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 16, y: 10 },
+            { x: 15, y: 10 },
+            { x: 14, y: 10 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "left",
+          pending: "left",
+          body: [
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
+          ],
+        },
+        {
+          ...state.snakes[2],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 2, y: 20 },
+            { x: 1, y: 20 },
+            { x: 0, y: 20 },
+          ],
+        },
+      ],
+    };
+    state = tickMp(state);
+    expect(state.bombs[0]?.fuse).toBe(1);
+    expect(state.snakes.every((snake) => snake.alive)).toBe(true);
+    const next = tickMp(state);
+    expect(next.bombs).toEqual([]);
+    expect(next.snakes.every((snake) => snake.alive)).toBe(true);
+  });
+
+  it("kills head, body, and the planter in blast radius", () => {
+    const state = startMp(createMpLobby(PLAYERS, 1));
+    const parked = {
+      ...state.snakes[2],
+      direction: "right" as const,
+      pending: "right" as const,
+      body: [
+        { x: 2, y: 20 },
+        { x: 1, y: 20 },
+        { x: 0, y: 20 },
+      ],
+    };
+    const base = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      bombs: [{ ownerId: "a", x: 10, y: 10, fuse: 1 }],
+    };
+    const headHit = tickMp({
+      ...base,
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 8, y: 10 },
+            { x: 7, y: 10 },
+            { x: 6, y: 10 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "left",
+          pending: "left",
+          body: [
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
+          ],
+        },
+        parked,
+      ],
+    });
+    expect(headHit.status).toBe("playing");
+    expect(headHit.snakes[0].alive).toBe(false);
+    expect(headHit.lastDeaths[0]).toMatchObject({
+      playerId: "a",
+      cause: "bomb",
+      otherId: "a",
+    });
+    expect(describeDeaths(headHit.lastDeaths, headHit.snakes)).toBe("A blew up");
+
+    const bodyHit = tickMp({
+      ...base,
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 20, y: 4 },
+            { x: 19, y: 4 },
+            { x: 18, y: 4 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 12, y: 11 },
+            { x: 11, y: 11 },
+            { x: 10, y: 11 },
+          ],
+        },
+        parked,
+      ],
+    });
+    expect(bodyHit.snakes[1].alive).toBe(false);
+    expect(bodyHit.snakes[0].alive).toBe(true);
+    expect(bodyHit.lastDeaths[0]).toMatchObject({
+      playerId: "b",
+      cause: "bomb",
+      otherId: "a",
+    });
+    expect(describeDeaths(bodyHit.lastDeaths, bodyHit.snakes)).toBe("A bombed B");
+  });
+
+  it("ignores a bomb without a full bar and keeps guest bombs on the same tick", () => {
+    const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    expect(queueMpBomb(playing, "a").snakes[0].queuedBombs).toBe(0);
+    const charged = {
+      ...playing,
+      snakes: playing.snakes.map((snake) =>
+        snake.id === "b" ? { ...snake, power: MP_POWER_COST } : snake,
+      ),
+    };
+    const fired = queueMpFire(charged, "b");
+    expect(queueMpBomb(fired, "b").snakes[1].queuedBombs).toBe(0);
+    const bombed = queueMpBomb(charged, "b");
+    expect(keepLocalIntent(charged, bombed, "b").snakes[1].queuedBombs).toBe(1);
+    const later = { ...charged, tick: charged.tick + 1 };
+    expect(keepLocalIntent(later, bombed, "b").snakes[1].queuedBombs).toBe(0);
+    expect(fromWireState(toWireState(bombed))?.snakes[1].queuedBombs).toBe(1);
   });
 });

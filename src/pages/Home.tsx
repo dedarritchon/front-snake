@@ -1,20 +1,20 @@
-import type {WebViewContext} from '@frontapp/plugin-sdk/dist/webViewSdkTypes';
-import {useState} from 'react';
-import {styled} from 'styled-components';
+import type { WebViewContext } from "@frontapp/plugin-sdk/dist/webViewSdkTypes";
+import { useState } from "react";
+import { styled } from "styled-components";
 
-import {SnakeBoard} from '../components/SnakeBoard';
-import {VersusAiSession} from '../components/VersusAiSession';
-import {VersusSession} from '../components/VersusSession';
-import {useFrontContext} from '../context/FrontContext';
+import { SnakeBoard } from "../components/SnakeBoard";
+import { VersusAiSession } from "../components/VersusAiSession";
+import { VersusSession } from "../components/VersusSession";
+import { useFrontContext } from "../context/FrontContext";
 import {
   createRoomId,
   isRoomId,
   normalizeRoomId,
-} from '../game/multiplayerEngine';
-import {LOBBY_LEVEL_ID} from '../game/snakeEngine';
-import {useLeaderboard} from '../hooks/useLeaderboard';
-import {usePreferredSnakeColor} from '../hooks/usePreferredSnakeColor';
-import {useSnakeGame} from '../hooks/useSnakeGame';
+} from "../game/multiplayerEngine";
+import { LOBBY_LEVEL_ID } from "../game/snakeEngine";
+import { useLeaderboard } from "../hooks/useLeaderboard";
+import { usePreferredSnakeColor } from "../hooks/usePreferredSnakeColor";
+import { useSnakeGame } from "../hooks/useSnakeGame";
 
 const Page = styled.div`
   height: 100%;
@@ -30,7 +30,7 @@ function playerName(email: string, name?: string | null): string {
   if (fromName) {
     return fromName;
   }
-  return email.split('@')[0] || 'Player';
+  return email.split("@")[0] || "Player";
 }
 
 function getConversationMeta(context: WebViewContext): {
@@ -39,10 +39,10 @@ function getConversationMeta(context: WebViewContext): {
   levelSubtitle?: string;
 } {
   if (
-    context.type === 'singleConversation' ||
-    context.type === 'singleConversationPopover'
+    context.type === "singleConversation" ||
+    context.type === "singleConversationPopover"
   ) {
-    const {conversation} = context;
+    const { conversation } = context;
     const subject = conversation.subject?.trim();
     return {
       levelId: conversation.id,
@@ -55,15 +55,15 @@ function getConversationMeta(context: WebViewContext): {
 
   return {
     levelId: LOBBY_LEVEL_ID,
-    levelTitle: 'NO CONVERSATION',
-    levelSubtitle: 'Open a conversation to start a level',
+    levelTitle: "NO CONVERSATION",
+    levelSubtitle: "Open a conversation to start a level",
   };
 }
 
 type VersusFlow =
-  | {kind: 'setup'}
-  | {kind: 'room'; roomId: string; host: boolean}
-  | {kind: 'ai'};
+  | { kind: "setup" }
+  | { kind: "room"; roomId: string; host: boolean }
+  | { kind: "ai" };
 
 function RankedHome({
   versusSetup,
@@ -82,25 +82,36 @@ function RankedHome({
   onJoinRoom: (roomId: string) => void;
   onCancelVersus: () => void;
 }) {
-  const {context, guest} = useFrontContext();
-  const {levelId} = context
+  const { context, guest } = useFrontContext();
+  const { levelId } = context
     ? getConversationMeta(context)
-    : {levelId: LOBBY_LEVEL_ID};
-  const {board, lastSubmit, start, submit, busy} = useLeaderboard();
-  const {state, muted, toggleMute, pause} = useSnakeGame(levelId, {
+    : { levelId: LOBBY_LEVEL_ID };
+  const { board, lastSubmit, start, submit, busy } = useLeaderboard();
+  const {
+    state,
+    liveRef,
+    prevLiveRef,
+    lastTickAtRef,
+    muted,
+    toggleMute,
+    pause,
+  } = useSnakeGame(levelId, {
     start,
     submit,
     locked: busy !== null || versusSetup,
   });
   const [snakeColor, setSnakeColor] = usePreferredSnakeColor();
   const label = guest
-    ? 'Guest'
-    : playerName(context?.teammate.email ?? '', context?.teammate.name);
+    ? "Guest"
+    : playerName(context?.teammate.email ?? "", context?.teammate.name);
 
   return (
     <Page>
       <SnakeBoard
         state={state}
+        liveRef={liveRef}
+        prevLiveRef={prevLiveRef}
+        lastTickAtRef={lastTickAtRef}
         playerLabel={label}
         guest={guest}
         muted={muted}
@@ -127,7 +138,7 @@ export function Home() {
   const [versus, setVersus] = useState<VersusFlow | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
 
-  if (versus?.kind === 'ai') {
+  if (versus?.kind === "ai") {
     return (
       <VersusAiSession
         onSolo={() => {
@@ -138,7 +149,7 @@ export function Home() {
     );
   }
 
-  if (versus?.kind === 'room') {
+  if (versus?.kind === "room") {
     return (
       <VersusSession
         roomId={versus.roomId}
@@ -153,28 +164,28 @@ export function Home() {
 
   return (
     <RankedHome
-      versusSetup={versus?.kind === 'setup'}
+      versusSetup={versus?.kind === "setup"}
       joinError={joinError}
       onVersus={() => {
         setJoinError(null);
-        setVersus({kind: 'setup'});
+        setVersus({ kind: "setup" });
       }}
       onVsAi={() => {
         setJoinError(null);
-        setVersus({kind: 'ai'});
+        setVersus({ kind: "ai" });
       }}
       onCreateRoom={() => {
         setJoinError(null);
-        setVersus({kind: 'room', roomId: createRoomId(), host: true});
+        setVersus({ kind: "room", roomId: createRoomId(), host: true });
       }}
       onJoinRoom={(raw) => {
         const roomId = normalizeRoomId(raw);
         if (!isRoomId(roomId)) {
-          setJoinError('Enter a room id');
+          setJoinError("Enter a room id");
           return;
         }
         setJoinError(null);
-        setVersus({kind: 'room', roomId, host: false});
+        setVersus({ kind: "room", roomId, host: false });
       }}
       onCancelVersus={() => {
         setVersus(null);

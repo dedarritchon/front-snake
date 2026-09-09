@@ -154,6 +154,13 @@ describe("parseRoomInput", () => {
     });
   });
 
+  it("reads a bomb payload", () => {
+    expect(parseRoomInput({ playerId: "a", bomb: true })).toEqual({
+      playerId: "a",
+      kind: "bomb",
+    });
+  });
+
   it("rejects a malformed payload", () => {
     expect(parseRoomInput({ playerId: "a" })).toBeNull();
     expect(parseRoomInput({ dir: "up" })).toBeNull();

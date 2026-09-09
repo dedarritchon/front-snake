@@ -1,20 +1,23 @@
-import {useEffect, useRef, useState} from 'react';
-import {styled} from 'styled-components';
+import { memo, useEffect, useRef, useState } from "react";
+import { styled } from "styled-components";
 
-import {snakeAudio} from '../audio/snakeAudio';
-import type {LeaderboardBoard, LeaderboardEntry} from '../snakeClient/leaderboard';
+import { snakeAudio } from "../audio/snakeAudio";
+import type {
+  LeaderboardBoard,
+  LeaderboardEntry,
+} from "../snakeClient/leaderboard";
 
 const LCD = {
-  bg: '#b7c86a',
-  pixel: '#2a3816',
-  pixelSoft: 'rgba(42, 56, 22, 0.14)',
-  border: '#243214',
+  bg: "#b7c86a",
+  pixel: "#2a3816",
+  pixelSoft: "rgba(42, 56, 22, 0.14)",
+  border: "#243214",
 };
 
 const MEDAL = {
-  gold: '#b88914',
-  silver: '#7d846c',
-  bronze: '#8a4e1f',
+  gold: "#b88914",
+  silver: "#7d846c",
+  bronze: "#8a4e1f",
 };
 
 const Wrap = styled.div`
@@ -87,7 +90,7 @@ const Screen = styled.div`
     ),
     ${LCD.bg};
   color: ${LCD.pixel};
-  font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
+  font-family: "Press Start 2P", "Courier New", Courier, monospace;
   padding: 18px 14px 16px;
 `;
 
@@ -144,10 +147,10 @@ const PodiumRow = styled.li<{
   border: 2px solid ${LCD.border};
   background: ${(p) =>
     p.$place === 1
-      ? 'rgba(184, 137, 20, 0.16)'
+      ? "rgba(184, 137, 20, 0.16)"
       : p.$place === 2
-        ? 'rgba(125, 132, 108, 0.16)'
-        : 'rgba(138, 78, 31, 0.14)'};
+        ? "rgba(125, 132, 108, 0.16)"
+        : "rgba(138, 78, 31, 0.14)"};
 `;
 
 const Rest = styled.ol`
@@ -189,7 +192,8 @@ const Row = styled.li<{
   text-transform: uppercase;
   line-height: 1.45;
   opacity: ${(p) => (p.$you ? 1 : 0.88)};
-  background: ${(p) => (p.$you && !p.$podium ? 'rgba(42, 56, 22, 0.08)' : 'transparent')};
+  background: ${(p) =>
+    p.$you && !p.$podium ? "rgba(42, 56, 22, 0.08)" : "transparent"};
   border-bottom: 1px solid rgba(36, 50, 20, 0.28);
 
   &:last-child {
@@ -268,14 +272,17 @@ function PodiumCard({
 }) {
   return (
     <PodiumRow $place={place}>
-      <Medal $place={place} aria-label={place === 1 ? 'Gold' : place === 2 ? 'Silver' : 'Bronze'} />
+      <Medal
+        $place={place}
+        aria-label={place === 1 ? "Gold" : place === 2 ? "Silver" : "Bronze"}
+      />
       <Name>{entry.display_name}</Name>
       <Score>{entry.best_score}</Score>
     </PodiumRow>
   );
 }
 
-export function Leaderboard({
+export const Leaderboard = memo(function Leaderboard({
   board,
   playing,
   onPause,
@@ -314,13 +321,13 @@ export function Leaderboard({
     const onKey = (event: KeyboardEvent) => {
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         close();
       }
     };
-    window.addEventListener('keydown', onKey, true);
+    window.addEventListener("keydown", onKey, true);
     return () => {
-      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener("keydown", onKey, true);
       snakeAudio.stopFanfare();
     };
   }, [full]);
@@ -333,9 +340,9 @@ export function Leaderboard({
       <Wrap>
         <Title>
           <TitleMeta>
-            <TitleCopy>{board.domain ?? 'Company'}</TitleCopy>
+            <TitleCopy>{board.domain ?? "Company"}</TitleCopy>
             <RankHint>
-              {board.you ? `You are #${board.you.rank}` : 'Unranked'}
+              {board.you ? `You are #${board.you.rank}` : "Unranked"}
             </RankHint>
           </TitleMeta>
           <GhostButton type="button" onClick={open}>
@@ -349,7 +356,7 @@ export function Leaderboard({
           <ScreenHead>
             <ScreenTitle>
               <ScreenLabel>Hall of fame</ScreenLabel>
-              <ScreenDomain>{board.domain ?? 'Company'}</ScreenDomain>
+              <ScreenDomain>{board.domain ?? "Company"}</ScreenDomain>
             </ScreenTitle>
             <GhostButton type="button" onClick={close}>
               Close
@@ -410,4 +417,4 @@ export function Leaderboard({
       ) : null}
     </>
   );
-}
+});

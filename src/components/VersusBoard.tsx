@@ -1,31 +1,39 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 import { styled } from "styled-components";
 
 import {
   describeDeaths,
   hasSlowMoClip,
+  MP_BOMB_FUSE_TICKS,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
   MP_ROUNDS,
+  type MpBomb,
   type MpDeath,
   type MpPlayer,
   type MpShot,
   type MpSnake,
   type MpState,
+  mpTickMs,
   roundStandings,
 } from "../game/multiplayerEngine";
+import {
+  bindCanvas,
+  clearBoard,
+  createCanvasPaintCache,
+  LCD,
+  lerpAmount,
+  paintGrid,
+  setCanvasCssSize,
+  shouldLerpMp,
+} from "../game/paintBoard";
+import { snakeSwatch } from "../game/snakeColors";
 import type { Point } from "../game/types";
 import type { RoomLink } from "../snakeClient/multiplayer";
+import { formatMbps } from "../snakeClient/throughput";
 import { BuildMark } from "./BuildMark";
 import { ColorPicker } from "./ColorPicker";
-
-const LCD = {
-  bg: "#b7c86a",
-  pixel: "#2a3816",
-  pixelSoft: "rgba(42, 56, 22, 0.14)",
-  border: "#243214",
-};
 
 const Shell = styled.div`
   position: relative;
@@ -58,6 +66,18 @@ const LevelBar = styled.div`
 `;
 
 const LevelLabel = styled.span`
+  font-size: 8px;
+  letter-spacing: 0.08em;
+`;
+
+const LevelCluster = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+`;
+
+const NetSpeed = styled.span`
   font-size: 8px;
   letter-spacing: 0.08em;
 `;
@@ -158,7 +178,7 @@ const Swatch = styled.span<{
 }>`
   width: 8px;
   height: 8px;
-  background: ${(p) => p.$color};
+  background: ${(p) => snakeSwatch(p.$color)};
   flex: 0 0 auto;
   margin-top: 1px;
 `;
@@ -384,119 +404,11 @@ function winnerName(state: MpState): string {
   );
 }
 
-const EMPTY_FOODS: Point[] = [];
-const EMPTY_SHOTS: MpShot[] = [];
-
-function paintVersus(
-  canvas: HTMLCanvasElement,
-  snakes: MpSnake[],
-  foods: Point[],
-  shots: MpShot[],
-  cols: number,
-  rows: number,
-): void {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-  const dpr = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (width === 0 || height === 0) {
-    return;
-  }
-  const pixelW = Math.round(width * dpr);
-  const pixelH = Math.round(height * dpr);
-  if (canvas.width !== pixelW || canvas.height !== pixelH) {
-    canvas.width = pixelW;
-    canvas.height = pixelH;
-  }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  const cellW = width / cols;
-  const cellH = height / rows;
-
-  const painted = [...snakes].sort((a, b) => Number(a.alive) - Number(b.alive));
-  for (const snake of painted) {
-    const inset = snake.alive ? 0.08 : 0.04;
-    const padX = cellW * inset;
-    const padY = cellH * inset;
-    const sizeW = cellW - padX * 2;
-    const sizeH = cellH - padY * 2;
-    ctx.save();
-    if (!snake.alive) {
-      ctx.globalAlpha = 0.28;
-    }
-    ctx.fillStyle = snake.color;
-    for (const segment of snake.body) {
-      ctx.fillRect(
-        segment.x * cellW + padX,
-        segment.y * cellH + padY,
-        sizeW,
-        sizeH,
-      );
-    }
-    if (!snake.alive && snake.body[0]) {
-      ctx.globalAlpha = 0.7;
-      const head = snake.body[0];
-      const cx = (head.x + 0.5) * cellW;
-      const cy = (head.y + 0.5) * cellH;
-      const arm = Math.min(cellW, cellH) * 0.28;
-      ctx.strokeStyle = LCD.bg;
-      ctx.lineWidth = Math.max(2, Math.min(cellW, cellH) * 0.14);
-      ctx.lineCap = "square";
-      ctx.beginPath();
-      ctx.moveTo(cx - arm, cy - arm);
-      ctx.lineTo(cx + arm, cy + arm);
-      ctx.moveTo(cx + arm, cy - arm);
-      ctx.lineTo(cx - arm, cy + arm);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  for (const food of foods) {
-    const left = food.x * cellW;
-    const top = food.y * cellH;
-    ctx.fillStyle = LCD.pixel;
-    ctx.fillRect(
-      left + cellW * 0.38,
-      top + cellH * 0.08,
-      cellW * 0.24,
-      cellH * 0.84,
-    );
-    ctx.fillRect(
-      left + cellW * 0.08,
-      top + cellH * 0.38,
-      cellW * 0.84,
-      cellH * 0.24,
-    );
-    ctx.fillStyle = LCD.bg;
-    ctx.fillRect(
-      left + cellW * 0.34,
-      top + cellH * 0.34,
-      cellW * 0.32,
-      cellH * 0.32,
-    );
-  }
-
-  const colorOf = (ownerId: string): string =>
-    snakes.find((snake) => snake.id === ownerId)?.color ?? LCD.pixel;
-  for (const shot of shots) {
-    const padX = cellW * 0.22;
-    const padY = cellH * 0.22;
-    ctx.fillStyle = colorOf(shot.ownerId);
-    ctx.fillRect(
-      shot.x * cellW + padX,
-      shot.y * cellH + padY,
-      cellW - padX * 2,
-      cellH - padY * 2,
-    );
-  }
-}
-
 export function VersusBoard({
   state,
+  liveRef,
+  prevLiveRef,
+  lastTickAtRef,
   players,
   youId,
   isHost,
@@ -515,8 +427,12 @@ export function VersusBoard({
   onReplay,
   onSolo,
   onChangeColor,
+  getNetBps,
 }: {
   state: MpState | null;
+  liveRef: RefObject<MpState | null>;
+  prevLiveRef: RefObject<MpState | null>;
+  lastTickAtRef: RefObject<number>;
   players: MpPlayer[];
   youId: string;
   isHost: boolean;
@@ -530,10 +446,12 @@ export function VersusBoard({
     snakes: MpSnake[];
     foods: Point[];
     shots: MpShot[];
+    bombs: MpBomb[];
     deaths: MpDeath[];
   } | null;
   ai?: boolean;
   youOut?: boolean;
+  getNetBps?: () => number;
   onToggleMute: () => void;
   onCopyId: () => void;
   onReady: () => void;
@@ -548,14 +466,6 @@ export function VersusBoard({
     Boolean(personalView) && (state?.status ?? "lobby") === "playing";
   const snakes =
     viewingPersonal && personalView ? personalView.snakes : liveSnakes;
-  const foods =
-    viewingPersonal && personalView
-      ? personalView.foods
-      : (state?.foods ?? EMPTY_FOODS);
-  const shots =
-    viewingPersonal && personalView
-      ? personalView.shots
-      : (state?.shots ?? EMPTY_SHOTS);
   const status = state?.status ?? "lobby";
   const slowMo = status === "replay" || viewingPersonal;
   const seated =
@@ -592,49 +502,99 @@ export function VersusBoard({
         : "";
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const paint = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    if (status === "lobby") {
-      const ctx = canvas.getContext("2d");
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-      return;
-    }
-    paintVersus(canvas, snakes, foods, shots, cols, rows);
-  };
-  const paintRef = useRef(paint);
-  paintRef.current = paint;
-
-  useLayoutEffect(() => {
-    paint();
-  }, [snakes, foods, shots, cols, rows, status]);
+  const cacheRef = useRef(createCanvasPaintCache());
+  const personalRef = useRef(personalView);
+  personalRef.current = personalView;
+  const hudRef = useRef(state);
+  hudRef.current = state;
+  const netRef = useRef<HTMLSpanElement>(null);
+  const getNetBpsRef = useRef(getNetBps);
+  getNetBpsRef.current = getNetBps;
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    const cache = cacheRef.current;
     if (!canvas) {
       return;
     }
-    const observer = new ResizeObserver(() => {
-      paintRef.current();
+    bindCanvas(cache, canvas);
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0].contentRect;
+      setCanvasCssSize(cache, box.width, box.height);
     });
     observer.observe(canvas);
+    let frame = 0;
+    const loop = (now: number) => {
+      const hud = hudRef.current;
+      const live = liveRef.current ?? hud;
+      const statusNow = live?.status ?? hud?.status ?? "lobby";
+      if (statusNow === "lobby" || !live) {
+        clearBoard(canvas, cache);
+        frame = window.requestAnimationFrame(loop);
+        return;
+      }
+      const personal = personalRef.current;
+      const viewing = Boolean(personal) && live.status === "playing";
+      const currSnakes = viewing
+        ? (personal?.snakes ?? live.snakes)
+        : live.snakes;
+      const currFoods = viewing ? (personal?.foods ?? live.foods) : live.foods;
+      const currShots = viewing ? (personal?.shots ?? live.shots) : live.shots;
+      const currBombs = viewing ? (personal?.bombs ?? live.bombs) : live.bombs;
+      const prev = viewing ? null : prevLiveRef.current;
+      const lerp = !viewing && prev ? shouldLerpMp(prev, live) : false;
+      const t = lerpAmount(lastTickAtRef.current, mpTickMs(live), now, !lerp);
+      paintGrid(
+        canvas,
+        cache,
+        live.gridWidth,
+        live.gridHeight,
+        currSnakes,
+        currFoods,
+        currShots,
+        lerp && prev
+          ? { snakes: prev.snakes, foods: prev.foods, shots: prev.shots }
+          : null,
+        t,
+        {
+          tick: live.tick,
+          bombs: currBombs,
+          now,
+          lastTickAt: lastTickAtRef.current,
+          tickMs: mpTickMs(live),
+          fuseTicks: MP_BOMB_FUSE_TICKS,
+        },
+      );
+      const netEl = netRef.current;
+      const readNet = getNetBpsRef.current;
+      if (netEl && readNet) {
+        const label = formatMbps(readNet());
+        if (netEl.textContent !== label) {
+          netEl.textContent = label;
+        }
+      }
+      frame = window.requestAnimationFrame(loop);
+    };
+    frame = window.requestAnimationFrame(loop);
     return () => {
+      window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, []);
+  }, [lastTickAtRef, liveRef, prevLiveRef]);
 
   return (
     <Shell>
       <LevelBar>
-        <LevelLabel>
-          {slowMo
-            ? "Slow-mo"
-            : status === "lobby"
-              ? `Versus ${seated.length}/4`
-              : `Round ${state?.matchRound ?? 1}/${MP_ROUNDS}`}
-        </LevelLabel>
+        <LevelCluster>
+          <LevelLabel>
+            {slowMo
+              ? "Slow-mo"
+              : status === "lobby"
+                ? `Versus ${seated.length}/4`
+                : `Round ${state?.matchRound ?? 1}/${MP_ROUNDS}`}
+          </LevelLabel>
+          {ai || !getNetBps ? null : <NetSpeed ref={netRef}>0 Mb/s</NetSpeed>}
+        </LevelCluster>
         <BarRight>
           <BuildMark />
           <MuteButton
@@ -857,7 +817,7 @@ export function VersusBoard({
                       {Array.from({ length: MP_POWER_COST }, (_, index) => (
                         <PowerTick
                           key={index}
-                          $color={player.color}
+                          $color={snakeSwatch(player.color)}
                           $on={(snake?.power ?? 0) % MP_POWER_COST > index}
                         />
                       ))}
@@ -876,7 +836,7 @@ export function VersusBoard({
           })}
         </Roster>
         {status === "playing" || status === "countdown" ? (
-          <OverlayHint>Space rocket · Shift turbo</OverlayHint>
+          <OverlayHint>Space rocket · Shift turbo · B bomb</OverlayHint>
         ) : null}
         <Ghost type="button" onClick={onSolo}>
           Back to solo

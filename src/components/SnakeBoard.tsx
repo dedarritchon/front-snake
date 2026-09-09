@@ -1,29 +1,30 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
-import {styled} from 'styled-components';
+import { type RefObject, useEffect, useMemo, useRef } from "react";
+import { styled } from "styled-components";
 
-import {BASE_TICK_MS, gameLevel} from '../game/engine';
-import {frontLogoBait, frontLogoCells} from '../game/logo';
+import { BASE_TICK_MS, gameLevel, tickMsForScore } from "../game/engine";
+import { frontLogoBait, frontLogoCells } from "../game/logo";
+import {
+  bindCanvas,
+  createCanvasPaintCache,
+  LCD,
+  lerpAmount,
+  paintGrid,
+  setCanvasCssSize,
+} from "../game/paintBoard";
 import {
   blockedCells,
   createTitleSnakes,
   tickTitleSnakes,
   type TitleSnake,
-} from '../game/titleSnakes';
-import type {GameState, Point} from '../game/types';
+} from "../game/titleSnakes";
+import type { GameState } from "../game/types";
 import type {
   LeaderboardBoard,
   SubmitRunResponse,
-} from '../snakeClient/leaderboard';
-import {BuildMark} from './BuildMark';
-import {ColorPicker} from './ColorPicker';
-import {Leaderboard} from './Leaderboard';
-
-const LCD = {
-  bg: '#b7c86a',
-  pixel: '#2a3816',
-  pixelSoft: 'rgba(42, 56, 22, 0.14)',
-  border: '#243214',
-};
+} from "../snakeClient/leaderboard";
+import { BuildMark } from "./BuildMark";
+import { ColorPicker } from "./ColorPicker";
+import { Leaderboard } from "./Leaderboard";
 
 const Shell = styled.div`
   position: relative;
@@ -40,7 +41,7 @@ const Shell = styled.div`
     ${LCD.bg};
   user-select: none;
   touch-action: none;
-  font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
+  font-family: "Press Start 2P", "Courier New", Courier, monospace;
   color: ${LCD.pixel};
 `;
 
@@ -104,19 +105,19 @@ const Board = styled.div<{
   border: 2px solid ${LCD.border};
   background-color: ${LCD.bg};
   background-image:
-    linear-gradient(
-      to right,
-      rgba(42, 56, 22, 0.12) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      rgba(42, 56, 22, 0.12) 1px,
-      transparent 1px
-    );
+    linear-gradient(to right, rgba(42, 56, 22, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(42, 56, 22, 0.12) 1px, transparent 1px);
   background-size: ${(p) => 100 / p.$cols}% ${(p) => 100 / p.$rows}%;
   background-position: 0 0;
   overflow: hidden;
+`;
+
+const BoardCanvas = styled.canvas`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 `;
 
 const Dock = styled.div`
@@ -136,34 +137,6 @@ const Hud = styled.div`
   line-height: 1.3;
 `;
 
-const Cell = styled.div<{
-  $x: number;
-  $y: number;
-  $cols: number;
-  $rows: number;
-}>`
-  position: absolute;
-  left: ${(p) => (p.$x / p.$cols) * 100}%;
-  top: ${(p) => (p.$y / p.$rows) * 100}%;
-  width: ${(p) => 100 / p.$cols}%;
-  height: ${(p) => 100 / p.$rows}%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-`;
-
-const SnakeBlock = styled.div<{
-  $logo?: boolean;
-  $ambient?: boolean;
-  $color?: string;
-}>`
-  width: ${(p) => (p.$logo ? '78%' : '84%')};
-  height: ${(p) => (p.$logo ? '78%' : '84%')};
-  background: ${(p) => p.$color ?? LCD.pixel};
-  border-radius: 22%;
-  opacity: ${(p) => (p.$ambient ? 0.28 : p.$logo ? 0.92 : 1)};
-`;
-
 const ReadyHint = styled.div`
   position: absolute;
   left: 8%;
@@ -178,44 +151,6 @@ const ReadyHint = styled.div`
   text-transform: uppercase;
   text-align: center;
   line-height: 1.5;
-`;
-
-const FoodGlyph = styled.div`
-  width: 70%;
-  height: 70%;
-  position: relative;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    background: ${LCD.pixel};
-    border-radius: 1px;
-  }
-
-  /* vertical petal */
-  &::before {
-    left: 38%;
-    top: 8%;
-    width: 24%;
-    height: 84%;
-  }
-
-  /* horizontal petal */
-  &::after {
-    left: 8%;
-    top: 38%;
-    width: 84%;
-    height: 24%;
-  }
-`;
-
-const FoodCenter = styled.div`
-  position: absolute;
-  inset: 34%;
-  background: ${LCD.bg};
-  border-radius: 1px;
-  z-index: 1;
 `;
 
 const HudName = styled.span`
@@ -320,12 +255,15 @@ const JoinForm = styled.form`
 
 interface SnakeBoardProps {
   state: GameState;
+  liveRef: RefObject<GameState>;
+  prevLiveRef: RefObject<GameState | null>;
+  lastTickAtRef: RefObject<number>;
   playerLabel: string;
   guest?: boolean;
   muted: boolean;
   board: LeaderboardBoard;
   lastSubmit: SubmitRunResponse | null;
-  busy: 'start' | 'submit' | null;
+  busy: "start" | "submit" | null;
   onToggleMute: () => void;
   onPause: () => void;
   onVersus?: () => void;
@@ -339,33 +277,32 @@ interface SnakeBoardProps {
   onChangeColor: (color: string) => void;
 }
 
-function segmentKey(point: Point, index: number): string {
-  return `${point.x}-${point.y}-${index}`;
-}
-
 function useTitleSnakes(
   active: boolean,
   cols: number,
   rows: number,
   blocked: Set<string>,
-): TitleSnake[] {
-  const [snakes, setSnakes] = useState<TitleSnake[]>([]);
+): RefObject<TitleSnake[]> {
+  const snakesRef = useRef<TitleSnake[]>([]);
   const blockedRef = useRef(blocked);
   blockedRef.current = blocked;
 
   useEffect(() => {
     if (!active) {
-      setSnakes([]);
+      snakesRef.current = [];
       return;
     }
-    setSnakes(createTitleSnakes(cols, rows));
-    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    snakesRef.current = createTitleSnakes(cols, rows);
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (motion.matches) {
       return;
     }
     const id = window.setInterval(() => {
-      setSnakes((current) =>
-        tickTitleSnakes(current, cols, rows, blockedRef.current),
+      snakesRef.current = tickTitleSnakes(
+        snakesRef.current,
+        cols,
+        rows,
+        blockedRef.current,
       );
     }, BASE_TICK_MS);
     return () => {
@@ -373,11 +310,14 @@ function useTitleSnakes(
     };
   }, [active, cols, rows]);
 
-  return snakes;
+  return snakesRef;
 }
 
 export function SnakeBoard({
   state,
+  liveRef,
+  prevLiveRef,
+  lastTickAtRef,
   playerLabel,
   guest,
   muted,
@@ -396,10 +336,8 @@ export function SnakeBoard({
   snakeColor,
   onChangeColor,
 }: SnakeBoardProps) {
-  const {snake, foods, gridWidth, gridHeight, score, status} = state;
-  const showTitle = !busy && status === 'ready';
-  const logo = showTitle ? frontLogoCells(gridWidth, gridHeight) : [];
-  const bait = showTitle ? frontLogoBait(gridWidth, gridHeight) : null;
+  const { gridWidth, gridHeight, score, status } = state;
+  const showTitle = !busy && status === "ready";
   const blocked = useMemo(() => {
     if (!showTitle) {
       return new Set<string>();
@@ -407,12 +345,112 @@ export function SnakeBoard({
     const cells = frontLogoCells(gridWidth, gridHeight);
     return blockedCells([...cells, frontLogoBait(gridWidth, gridHeight)]);
   }, [showTitle, gridWidth, gridHeight]);
-  const titleSnakes = useTitleSnakes(
+  const titleSnakesRef = useTitleSnakes(
     showTitle,
     gridWidth,
     gridHeight,
     blocked,
   );
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cacheRef = useRef(createCanvasPaintCache());
+  const colorRef = useRef(snakeColor);
+  colorRef.current = snakeColor;
+  const titleModeRef = useRef(showTitle);
+  titleModeRef.current = showTitle;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const cache = cacheRef.current;
+    if (!canvas) {
+      return;
+    }
+    bindCanvas(cache, canvas);
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0].contentRect;
+      setCanvasCssSize(cache, box.width, box.height);
+    });
+    observer.observe(canvas);
+    let frame = 0;
+    const loop = (now: number) => {
+      const live = liveRef.current;
+      const cols = live.gridWidth;
+      const rows = live.gridHeight;
+      if (busyRef.current) {
+        paintGrid(canvas, cache, cols, rows, [], []);
+        frame = window.requestAnimationFrame(loop);
+        return;
+      }
+      if (titleModeRef.current) {
+        const logo = frontLogoCells(cols, rows);
+        const bait = frontLogoBait(cols, rows);
+        const ambients = titleSnakesRef.current.map((ambient) => ({
+          id: `title-${ambient.id}`,
+          color: LCD.pixel,
+          body: ambient.body,
+          alive: true,
+          style: "ambient" as const,
+        }));
+        const logoSnake = {
+          id: "logo",
+          color: LCD.pixel,
+          body: logo,
+          alive: true,
+          style: "logo" as const,
+        };
+        paintGrid(canvas, cache, cols, rows, [...ambients, logoSnake], [bait]);
+        frame = window.requestAnimationFrame(loop);
+        return;
+      }
+      const prev = prevLiveRef.current;
+      const prevFrame =
+        live.status === "playing" && prev?.status === "playing" ? prev : null;
+      const t = lerpAmount(
+        lastTickAtRef.current,
+        tickMsForScore(live.score, live.snake.length),
+        now,
+        prevFrame === null,
+      );
+      paintGrid(
+        canvas,
+        cache,
+        cols,
+        rows,
+        [
+          {
+            id: "you",
+            color: colorRef.current,
+            body: live.snake,
+            alive: true,
+          },
+        ],
+        live.foods,
+        [],
+        prevFrame
+          ? {
+              snakes: [
+                {
+                  id: "you",
+                  color: colorRef.current,
+                  body: prevFrame.snake,
+                  alive: true,
+                },
+              ],
+              foods: prevFrame.foods,
+            }
+          : null,
+        t,
+        { tick: Math.floor(now / BASE_TICK_MS) },
+      );
+      frame = window.requestAnimationFrame(loop);
+    };
+    frame = window.requestAnimationFrame(loop);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [lastTickAtRef, liveRef, prevLiveRef, titleSnakesRef]);
 
   return (
     <Shell>
@@ -423,88 +461,22 @@ export function SnakeBoard({
           <MuteButton
             type="button"
             onClick={onToggleMute}
-            aria-label={muted ? 'Unmute' : 'Mute'}
+            aria-label={muted ? "Unmute" : "Mute"}
           >
-            {muted ? 'Muted' : 'Sound'}
+            {muted ? "Muted" : "Sound"}
           </MuteButton>
         </BarRight>
       </LevelBar>
 
       <BoardFrame>
         <Board $cols={gridWidth} $rows={gridHeight}>
-          {showTitle
-            ? titleSnakes.flatMap((ambient) =>
-                ambient.body.map((segment, index) => (
-                  <Cell
-                    key={`title-${ambient.id}-${index}`}
-                    $x={segment.x}
-                    $y={segment.y}
-                    $cols={gridWidth}
-                    $rows={gridHeight}
-                  >
-                    <SnakeBlock $ambient />
-                  </Cell>
-                )),
-              )
-            : null}
-          {!showTitle
-            ? snake.map((segment, index) => (
-                <Cell
-                  key={segmentKey(segment, index)}
-                  $x={segment.x}
-                  $y={segment.y}
-                  $cols={gridWidth}
-                  $rows={gridHeight}
-                >
-                    <SnakeBlock $color={snakeColor} />
-                </Cell>
-              ))
-            : null}
-          {!showTitle
-            ? foods.map((food, index) => (
-                <Cell
-                  key={`food-${food.x}-${food.y}-${index}`}
-                  $x={food.x}
-                  $y={food.y}
-                  $cols={gridWidth}
-                  $rows={gridHeight}
-                >
-                  <FoodGlyph>
-                    <FoodCenter />
-                  </FoodGlyph>
-                </Cell>
-              ))
-            : null}
-          {bait ? (
-            <Cell
-              key={`logo-bait-${bait.x}-${bait.y}`}
-              $x={bait.x}
-              $y={bait.y}
-              $cols={gridWidth}
-              $rows={gridHeight}
-            >
-              <FoodGlyph>
-                <FoodCenter />
-              </FoodGlyph>
-            </Cell>
-          ) : null}
-          {logo.map((cell) => (
-            <Cell
-              key={`logo-${cell.x}-${cell.y}`}
-              $x={cell.x}
-              $y={cell.y}
-              $cols={gridWidth}
-              $rows={gridHeight}
-            >
-              <SnakeBlock $logo />
-            </Cell>
-          ))}
+          <BoardCanvas ref={canvasRef} />
 
           {busy ? (
             <Overlay>
               Loading
               <OverlayHint>
-                {busy === 'start' ? 'Starting run…' : 'Saving score…'}
+                {busy === "start" ? "Starting run…" : "Saving score…"}
               </OverlayHint>
             </Overlay>
           ) : null}
@@ -518,9 +490,10 @@ export function SnakeBoard({
               <JoinForm
                 onSubmit={(event) => {
                   event.preventDefault();
-                  const field = event.currentTarget.elements.namedItem('roomId');
+                  const field =
+                    event.currentTarget.elements.namedItem("roomId");
                   const value =
-                    field instanceof HTMLInputElement ? field.value : '';
+                    field instanceof HTMLInputElement ? field.value : "";
                   onJoinRoom?.(value);
                 }}
               >
@@ -540,7 +513,7 @@ export function SnakeBoard({
               </GhostButton>
             </Overlay>
           ) : null}
-          {!busy && !versusSetup && status === 'ready' ? (
+          {!busy && !versusSetup && status === "ready" ? (
             <ReadyHint>
               Snake
               <OverlayHint>Arrows / WASD to play</OverlayHint>
@@ -564,13 +537,13 @@ export function SnakeBoard({
               <ColorPicker value={snakeColor} onChange={onChangeColor} />
             </ReadyHint>
           ) : null}
-          {!busy && status === 'paused' ? (
+          {!busy && status === "paused" ? (
             <Overlay>
               Paused
               <OverlayHint>Space resume · M mute</OverlayHint>
             </Overlay>
           ) : null}
-          {!busy && status === 'gameover' ? (
+          {!busy && status === "gameover" ? (
             <Overlay>
               Game over
               <OverlayHint>Score {score}</OverlayHint>
@@ -595,7 +568,7 @@ export function SnakeBoard({
         </ColorDock>
         <Leaderboard
           board={board}
-          playing={status === 'playing'}
+          playing={status === "playing"}
           onPause={onPause}
         />
       </Dock>

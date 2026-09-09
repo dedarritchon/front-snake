@@ -33,16 +33,18 @@ describe('FRONT logo', () => {
     ).toBe(false);
   });
 
-  it('uses a 4-wide N so FRONT does not read as FROKT', () => {
+  it('uses a 4-wide N so SNAKE does not read as SKAKE', () => {
     const cells = frontLogoCells(GRID_WIDTH, GRID_HEIGHT);
-    const originX = Math.max(0, Math.floor((GRID_WIDTH - 20) / 2));
     const topY = Math.min(...cells.map((cell) => cell.y));
-    const nX = originX + 3 + 1 + 3 + 1 + 3 + 1;
+    const snakeTop = topY + 7;
+    const snakeX = Math.max(0, Math.floor((GRID_WIDTH - 20) / 2));
+    const nX = snakeX + 3 + 1;
     const left = cells.filter(
-      (cell) => cell.x === nX && cell.y >= topY && cell.y < topY + 5,
+      (cell) => cell.x === nX && cell.y >= snakeTop && cell.y < snakeTop + 5,
     );
     const right = cells.filter(
-      (cell) => cell.x === nX + 3 && cell.y >= topY && cell.y < topY + 5,
+      (cell) =>
+        cell.x === nX + 3 && cell.y >= snakeTop && cell.y < snakeTop + 5,
     );
     expect(left).toHaveLength(5);
     expect(right).toHaveLength(5);

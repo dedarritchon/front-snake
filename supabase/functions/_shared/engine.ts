@@ -81,10 +81,7 @@ export function gameLevel(score: number): number {
 export function tickMsForScore(score: number, snakeLength: number): number {
   const level = gameLevel(score);
   const growth = Math.max(0, snakeLength - 3);
-  return Math.max(
-    MIN_TICK_MS,
-    BASE_TICK_MS - (level - 1) * 5 - growth * 3,
-  );
+  return Math.max(MIN_TICK_MS, BASE_TICK_MS - (level - 1) * 5 - growth * 3);
 }
 
 export function baitCountForScore(score: number): number {
@@ -103,8 +100,15 @@ function isOnSnake(point: Point, snake: Point[]): boolean {
   return snake.some((segment) => pointsEqual(segment, point));
 }
 
-function isOccupied(point: Point, occupied: Point[]): boolean {
-  return occupied.some((other) => pointsEqual(other, point));
+function blockedSet(snake: Point[], occupied: Point[]): Set<number> {
+  const blocked = new Set<number>();
+  for (const point of snake) {
+    blocked.add(point.y * GRID_WIDTH + point.x);
+  }
+  for (const point of occupied) {
+    blocked.add(point.y * GRID_WIDTH + point.x);
+  }
+  return blocked;
 }
 
 export function spawnFood(
@@ -112,19 +116,30 @@ export function spawnFood(
   occupied: Point[],
   rng: Rng,
 ): Point | null {
-  const free: Point[] = [];
+  const blocked = blockedSet(snake, occupied);
+  let free = 0;
   for (let y = 0; y < GRID_HEIGHT; y += 1) {
     for (let x = 0; x < GRID_WIDTH; x += 1) {
-      const point = { x, y };
-      if (!isOnSnake(point, snake) && !isOccupied(point, occupied)) {
-        free.push(point);
+      if (!blocked.has(y * GRID_WIDTH + x)) {
+        free += 1;
       }
     }
   }
-  if (free.length === 0) {
+  if (free === 0) {
     return null;
   }
-  return free[rng.nextInt(free.length)] ?? null;
+  let pick = rng.nextInt(free);
+  for (let y = 0; y < GRID_HEIGHT; y += 1) {
+    for (let x = 0; x < GRID_WIDTH; x += 1) {
+      if (!blocked.has(y * GRID_WIDTH + x)) {
+        if (pick === 0) {
+          return { x, y };
+        }
+        pick -= 1;
+      }
+    }
+  }
+  return null;
 }
 
 export function spawnFoods(

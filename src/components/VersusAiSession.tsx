@@ -41,12 +41,16 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
   const {
     playerId,
     state,
+    liveRef,
+    prevLiveRef,
+    lastTickAtRef,
     players,
     personalView,
     eliminated,
     sendDirection,
     sendFire,
     sendTurbo,
+    sendBomb,
     rematch,
     replaySlowMo,
   } = useAiMatch(name);
@@ -91,6 +95,11 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
         sendFire();
         return;
       }
+      if (key === "b") {
+        event.preventDefault();
+        sendBomb();
+        return;
+      }
       if (key === "m") {
         event.preventDefault();
         toggleMute();
@@ -105,13 +114,16 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [rematch, sendDirection, sendFire, sendTurbo, toggleMute]);
+  }, [rematch, sendBomb, sendDirection, sendFire, sendTurbo, toggleMute]);
 
   return (
     <Page>
       <VersusBoard
         ai
         state={state}
+        liveRef={liveRef}
+        prevLiveRef={prevLiveRef}
+        lastTickAtRef={lastTickAtRef}
         players={players}
         youId={playerId}
         isHost

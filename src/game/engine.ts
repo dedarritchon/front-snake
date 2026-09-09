@@ -1,5 +1,5 @@
-import type {Direction, GameState, Point} from './types';
-import {DIRECTION_DELTA, OPPOSITE} from './types';
+import type { Direction, GameState, Point } from "./types";
+import { DIRECTION_DELTA, OPPOSITE } from "./types";
 
 export const GRID_WIDTH = 22;
 export const GRID_HEIGHT = 40;
@@ -51,10 +51,7 @@ export function gameLevel(score: number): number {
 export function tickMsForScore(score: number, snakeLength: number): number {
   const level = gameLevel(score);
   const growth = Math.max(0, snakeLength - 3);
-  return Math.max(
-    MIN_TICK_MS,
-    BASE_TICK_MS - (level - 1) * 5 - growth * 3,
-  );
+  return Math.max(MIN_TICK_MS, BASE_TICK_MS - (level - 1) * 5 - growth * 3);
 }
 
 export function baitCountForScore(score: number): number {
@@ -73,8 +70,15 @@ function isOnSnake(point: Point, snake: Point[]): boolean {
   return snake.some((segment) => pointsEqual(segment, point));
 }
 
-function isOccupied(point: Point, occupied: Point[]): boolean {
-  return occupied.some((other) => pointsEqual(other, point));
+function blockedSet(snake: Point[], occupied: Point[]): Set<number> {
+  const blocked = new Set<number>();
+  for (const point of snake) {
+    blocked.add(point.y * GRID_WIDTH + point.x);
+  }
+  for (const point of occupied) {
+    blocked.add(point.y * GRID_WIDTH + point.x);
+  }
+  return blocked;
 }
 
 export function spawnFood(
@@ -82,19 +86,30 @@ export function spawnFood(
   occupied: Point[],
   rng: Rng,
 ): Point | null {
-  const free: Point[] = [];
+  const blocked = blockedSet(snake, occupied);
+  let free = 0;
   for (let y = 0; y < GRID_HEIGHT; y += 1) {
     for (let x = 0; x < GRID_WIDTH; x += 1) {
-      const point = {x, y};
-      if (!isOnSnake(point, snake) && !isOccupied(point, occupied)) {
-        free.push(point);
+      if (!blocked.has(y * GRID_WIDTH + x)) {
+        free += 1;
       }
     }
   }
-  if (free.length === 0) {
+  if (free === 0) {
     return null;
   }
-  return free[rng.nextInt(free.length)] ?? null;
+  let pick = rng.nextInt(free);
+  for (let y = 0; y < GRID_HEIGHT; y += 1) {
+    for (let x = 0; x < GRID_WIDTH; x += 1) {
+      if (!blocked.has(y * GRID_WIDTH + x)) {
+        if (pick === 0) {
+          return { x, y };
+        }
+        pick -= 1;
+      }
+    }
+  }
+  return null;
 }
 
 export function spawnFoods(
@@ -139,8 +154,8 @@ export function createSimState(
   };
   const snake: Point[] = [
     start,
-    {x: start.x - 1, y: start.y},
-    {x: start.x - 2, y: start.y},
+    { x: start.x - 1, y: start.y },
+    { x: start.x - 2, y: start.y },
   ];
   const foods = spawnFoods(baitCountForScore(0), snake, [], rng);
 
@@ -148,9 +163,9 @@ export function createSimState(
     levelId,
     snake,
     foods,
-    direction: 'right',
-    pendingDirection: 'right',
-    status: 'ready',
+    direction: "right",
+    pendingDirection: "right",
+    status: "ready",
     score: 0,
     highScore,
     gridWidth: GRID_WIDTH,
@@ -161,7 +176,7 @@ export function createSimState(
 }
 
 export function queueDirection(state: GameState, next: Direction): GameState {
-  if (state.status !== 'playing' && state.status !== 'ready') {
+  if (state.status !== "playing" && state.status !== "ready") {
     return state;
   }
   if (OPPOSITE[state.direction] === next) {
@@ -170,22 +185,22 @@ export function queueDirection(state: GameState, next: Direction): GameState {
   return {
     ...state,
     pendingDirection: next,
-    status: state.status === 'ready' ? 'playing' : state.status,
+    status: state.status === "ready" ? "playing" : state.status,
   };
 }
 
 export function togglePause(state: GameState): GameState {
-  if (state.status === 'playing') {
-    return {...state, status: 'paused'};
+  if (state.status === "playing") {
+    return { ...state, status: "paused" };
   }
-  if (state.status === 'paused') {
-    return {...state, status: 'playing'};
+  if (state.status === "paused") {
+    return { ...state, status: "playing" };
   }
   return state;
 }
 
 export function tick(state: GameState): GameState {
-  if (state.status !== 'playing') {
+  if (state.status !== "playing") {
     return state;
   }
 
@@ -193,7 +208,7 @@ export function tick(state: GameState): GameState {
   const direction = state.pendingDirection;
   const delta = DIRECTION_DELTA[direction];
   const head = state.snake[0];
-  const nextHead: Point = {x: head.x + delta.x, y: head.y + delta.y};
+  const nextHead: Point = { x: head.x + delta.x, y: head.y + delta.y };
 
   const hitWall =
     nextHead.x < 0 ||
@@ -204,7 +219,7 @@ export function tick(state: GameState): GameState {
 
   if (hitWall || hitSelf) {
     const highScore = Math.max(state.score, state.highScore);
-    return {...state, status: 'gameover', highScore, direction};
+    return { ...state, status: "gameover", highScore, direction };
   }
 
   const eatenIndex = state.foods.findIndex((food) =>
@@ -232,17 +247,17 @@ export function tick(state: GameState): GameState {
   };
 }
 
-const DIRECTIONS = new Set<Direction>(['up', 'down', 'left', 'right']);
+const DIRECTIONS = new Set<Direction>(["up", "down", "left", "right"]);
 
 export function isDirection(value: unknown): value is Direction {
-  return typeof value === 'string' && DIRECTIONS.has(value as Direction);
+  return typeof value === "string" && DIRECTIONS.has(value as Direction);
 }
 
 export interface ReplayResult {
   score: number;
   ticks: number;
   minDurationMs: number;
-  ended: GameState['status'];
+  ended: GameState["status"];
 }
 
 export function replayGame(
@@ -250,23 +265,23 @@ export function replayGame(
   directions: Direction[],
 ): ReplayResult {
   if (directions.length === 0 || directions.length > MAX_REPLAY_TICKS) {
-    return {score: 0, ticks: 0, minDurationMs: 0, ended: 'ready'};
+    return { score: 0, ticks: 0, minDurationMs: 0, ended: "ready" };
   }
 
-  let state = createSimState('replay', seed);
+  let state = createSimState("replay", seed);
   let minDurationMs = 0;
 
   for (const [index, direction] of directions.entries()) {
-    if (state.status === 'gameover') {
+    if (state.status === "gameover") {
       return {
         score: state.score,
         ticks: index,
         minDurationMs,
-        ended: 'gameover',
+        ended: "gameover",
       };
     }
     minDurationMs += tickMsForScore(state.score, state.snake.length);
-    state = tick({...state, pendingDirection: direction, status: 'playing'});
+    state = tick({ ...state, pendingDirection: direction, status: "playing" });
   }
 
   return {

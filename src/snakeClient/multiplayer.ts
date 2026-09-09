@@ -17,6 +17,7 @@ import {
 } from "../game/snakeColors";
 import type { Direction } from "../game/types";
 import { snakeSupabase } from "./supabase";
+import { createByteRate, payloadBytes } from "./throughput";
 
 export const PRESENCE_GRACE_MS = 4000;
 
@@ -34,7 +35,8 @@ export interface PresenceMeta {
 export type RoomInput =
   | { playerId: string; kind: "dir"; dir: Direction }
   | { playerId: string; kind: "fire" }
-  | { playerId: string; kind: "turbo" };
+  | { playerId: string; kind: "turbo" }
+  | { playerId: string; kind: "bomb" };
 
 export interface RoomHandlers {
   onState: (state: MpState) => void;
@@ -54,6 +56,7 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
     dir?: unknown;
     fire?: unknown;
     turbo?: unknown;
+    bomb?: unknown;
   };
   if (typeof body.playerId !== "string") {
     return null;
@@ -63,6 +66,9 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
   }
   if (body.fire === true) {
     return { playerId: body.playerId, kind: "fire" };
+  }
+  if (body.bomb === true) {
+    return { playerId: body.playerId, kind: "bomb" };
   }
   if (!isDirection(body.dir)) {
     return null;
@@ -179,6 +185,7 @@ export class MultiplayerRoom {
   private generation = 0;
   private pendingState: MpWireState | null = null;
   private sendingState = false;
+  private readonly traffic = createByteRate();
 
   constructor(roomId: string, self: PresenceMeta, handlers: RoomHandlers) {
     this.roomId = roomId;
@@ -222,40 +229,32 @@ export class MultiplayerRoom {
     return this.self.color;
   }
 
+  throughput(): number {
+    return this.traffic.bitsPerSec();
+  }
+
   sendInput(dir: Direction): void {
-    void this.channel?.send({
-      type: "broadcast",
-      event: "input",
-      payload: { playerId: this.self.playerId, dir },
-    });
+    this.sendBroadcast("input", { playerId: this.self.playerId, dir });
   }
 
   sendFire(): void {
-    void this.channel?.send({
-      type: "broadcast",
-      event: "input",
-      payload: { playerId: this.self.playerId, fire: true },
-    });
+    this.sendBroadcast("input", { playerId: this.self.playerId, fire: true });
   }
 
   sendTurbo(): void {
-    void this.channel?.send({
-      type: "broadcast",
-      event: "input",
-      payload: { playerId: this.self.playerId, turbo: true },
-    });
+    this.sendBroadcast("input", { playerId: this.self.playerId, turbo: true });
+  }
+
+  sendBomb(): void {
+    this.sendBroadcast("input", { playerId: this.self.playerId, bomb: true });
   }
 
   sendStart(seed: number): void {
-    void this.channel?.send({
-      type: "broadcast",
-      event: "start",
-      payload: { seed },
-    });
+    this.sendBroadcast("start", { seed });
   }
 
-  sendState(state: MpState): void {
-    this.pendingState = toWireState(state);
+  sendState(state: MpState, options?: { includeReplay?: boolean }): void {
+    this.pendingState = toWireState(state, options);
     this.flushState();
   }
 
@@ -271,6 +270,7 @@ export class MultiplayerRoom {
     this.sendingState = true;
     const payload = this.pendingState;
     this.pendingState = null;
+    this.recordTraffic(payload);
     const sent = this.channel.send({
       type: "broadcast",
       event: "state",
@@ -282,6 +282,19 @@ export class MultiplayerRoom {
         this.flushState();
       }
     });
+  }
+
+  private sendBroadcast(event: string, payload: unknown): void {
+    this.recordTraffic(payload);
+    void this.channel?.send({
+      type: "broadcast",
+      event,
+      payload,
+    });
+  }
+
+  private recordTraffic(payload: unknown): void {
+    this.traffic.record(payloadBytes(payload));
   }
 
   async disconnect(): Promise<void> {
@@ -408,6 +421,7 @@ export class MultiplayerRoom {
         }
         const state = fromWireState(payload);
         if (state) {
+          this.recordTraffic(payload);
           this.handlers.onState(state);
         }
       })
@@ -419,6 +433,7 @@ export class MultiplayerRoom {
         if (!input) {
           return;
         }
+        this.recordTraffic(payload);
         this.handlers.onInput(input);
       })
       .on("broadcast", { event: "start" }, ({ payload }) => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { snakeAudio } from "../audio/snakeAudio";
 import { isDirection, randomSeed } from "../game/engine";
+import { mpHudKey } from "../game/hudState";
 import {
   advanceCountdown,
   advanceReplay,
@@ -9,27 +10,29 @@ import {
   beginReplay,
   beginRound,
   createMpLobby,
+  createPackedSnapshotRing,
   createPlayerId,
   keepLocalIntent,
   killPlayer,
   markHostLeft,
   MP_COUNTDOWN_MS,
-  MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
-  MP_TICK_MS,
   type MpDeath,
   type MpPlayer,
   type MpSnapshot,
   type MpState,
   mpTickMs,
+  queueMpBomb,
   queueMpFire,
   queueMpInput,
   queueMpTurbo,
+  retainReplay,
   shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
   tickMp,
 } from "../game/multiplayerEngine";
+import { shouldLerpMp } from "../game/paintBoard";
 import {
   isSnakeColor,
   loadPreferredColor,
@@ -56,29 +59,111 @@ export function useMultiplayerRoom(
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<RoomLink>("connecting");
 
-  const stateRef = useRef(state);
+  const stateRef = useRef<MpState | null>(null);
+  const prevLiveRef = useRef<MpState | null>(null);
+  const lastTickAtRef = useRef(0);
   const isHostRef = useRef(isHost);
   const playersRef = useRef(players);
   const readyRef = useRef(ready);
   const roomRef = useRef<MultiplayerRoom | null>(null);
   const nameRef = useRef(playerName);
+  const sentOverReplayRef = useRef(false);
   nameRef.current = playerName;
-  stateRef.current = state;
   isHostRef.current = isHost;
   playersRef.current = players;
   readyRef.current = ready;
 
-  const publish = useCallback((next: MpState) => {
-    stateRef.current = next;
-    setState(next);
-    const room = roomRef.current;
-    queueMicrotask(() => {
-      const latest = stateRef.current;
-      if (latest) {
-        room?.sendState(latest);
+  const historyRef = useRef(createPackedSnapshotRing());
+  const personalReplayRef = useRef(false);
+  const localReplayRef = useRef(false);
+  const lastHostAtRef = useRef(0);
+  const lastHostTickRef = useRef(-1);
+  const [personalReplay, setPersonalReplay] = useState<{
+    frames: MpSnapshot[];
+    index: number;
+    deaths: MpDeath[];
+  } | null>(null);
+
+  const commitState = useCallback(
+    (
+      next: MpState,
+      options?: { send?: boolean; forceHud?: boolean; resync?: boolean },
+    ) => {
+      const previous = stateRef.current;
+      if (previous && shouldLerpMp(previous, next)) {
+        prevLiveRef.current = previous;
+        lastTickAtRef.current = performance.now();
+      } else if (
+        previous &&
+        (previous.tick !== next.tick ||
+          previous.replayIndex !== next.replayIndex ||
+          previous.status !== next.status)
+      ) {
+        prevLiveRef.current = null;
+        lastTickAtRef.current = performance.now();
       }
-    });
-  }, []);
+
+      const me = identityRef.current.playerId;
+      if (
+        previous &&
+        !personalReplayRef.current &&
+        shouldPersonalSlowMo(previous, next, me)
+      ) {
+        const crash = snapshotMp(next);
+        personalReplayRef.current = true;
+        setPersonalReplay({
+          frames: [...historyRef.current.unpack(), crash, crash, crash],
+          index: 0,
+          deaths: next.lastDeaths.filter((death) => death.playerId === me),
+        });
+      }
+      if (next.status === "playing") {
+        if (previous?.status !== "playing" || previous.tick !== next.tick) {
+          historyRef.current.push(next);
+        }
+      }
+      if (
+        next.status === "replay" ||
+        next.status === "over" ||
+        next.status === "lobby" ||
+        next.status === "countdown"
+      ) {
+        personalReplayRef.current = false;
+        setPersonalReplay(null);
+        historyRef.current.clear();
+      }
+
+      stateRef.current = next;
+      if (options?.send) {
+        queueMicrotask(() => {
+          const latest = stateRef.current;
+          if (!latest) {
+            return;
+          }
+          const includeReplay =
+            latest.status === "over" &&
+            (options.resync === true || !sentOverReplayRef.current);
+          if (latest.status === "over" && includeReplay) {
+            sentOverReplayRef.current = true;
+          }
+          if (latest.status !== "over") {
+            sentOverReplayRef.current = false;
+          }
+          roomRef.current?.sendState(latest, { includeReplay });
+        });
+      }
+      if (options?.forceHud || mpHudKey(previous) !== mpHudKey(next)) {
+        setState(next);
+      }
+    },
+    [],
+  );
+  const publish = useCallback(
+    (next: MpState) => {
+      commitState(next, { send: true });
+    },
+    [commitState],
+  );
   const publishRef = useRef(publish);
   publishRef.current = publish;
 
@@ -98,7 +183,7 @@ export function useMultiplayerRoom(
       return;
     }
     const seed = randomSeed();
-    historyRef.current = [];
+    historyRef.current.clear();
     personalReplayRef.current = false;
     setPersonalReplay(null);
     publish(
@@ -110,17 +195,6 @@ export function useMultiplayerRoom(
   }, [clearReady, publish]);
   const beginMatchRef = useRef(beginMatch);
   beginMatchRef.current = beginMatch;
-  const historyRef = useRef<MpSnapshot[]>([]);
-  const prevStateRef = useRef<MpState | null>(null);
-  const personalReplayRef = useRef(false);
-  const localReplayRef = useRef(false);
-  const lastHostAtRef = useRef(0);
-  const lastHostTickRef = useRef(-1);
-  const [personalReplay, setPersonalReplay] = useState<{
-    frames: MpSnapshot[];
-    index: number;
-    deaths: MpDeath[];
-  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,7 +224,11 @@ export function useMultiplayerRoom(
           }
           const current = stateRef.current;
           if (current) {
-            room.sendState(current);
+            sentOverReplayRef.current = false;
+            room.sendState(current, { includeReplay: true });
+            if (current.status === "over") {
+              sentOverReplayRef.current = true;
+            }
           }
         },
         onRoster: (nextPlayers, hostId) => {
@@ -225,8 +303,7 @@ export function useMultiplayerRoom(
               current.status === "lobby")
           ) {
             const left = markHostLeft(current);
-            stateRef.current = left;
-            setState(left);
+            commitState(left, { forceHud: true });
           }
         },
         onState: (next) => {
@@ -246,9 +323,11 @@ export function useMultiplayerRoom(
           }
           lastHostTickRef.current = next.tick;
           lastHostAtRef.current = performance.now();
-          const applied = keepLocalIntent(next, current, identity.playerId);
-          stateRef.current = applied;
-          setState(applied);
+          const applied = retainReplay(
+            keepLocalIntent(next, current, identity.playerId),
+            current,
+          );
+          commitState(applied);
           if (next.status === "playing" || next.status === "countdown") {
             clearReadyRef.current();
           }
@@ -266,7 +345,9 @@ export function useMultiplayerRoom(
               ? queueMpFire(current, input.playerId)
               : input.kind === "turbo"
                 ? queueMpTurbo(current, input.playerId)
-                : queueMpInput(current, input.playerId, input.dir);
+                : input.kind === "bomb"
+                  ? queueMpBomb(current, input.playerId)
+                  : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
         },
         onStart: () => {
@@ -289,61 +370,25 @@ export function useMultiplayerRoom(
       roomRef.current = null;
       void room.disconnect();
     };
-  }, [claimHost, roomId]);
+  }, [claimHost, roomId, commitState]);
 
   useEffect(() => {
     void roomRef.current?.setName(playerName);
   }, [playerName]);
 
   useEffect(() => {
-    historyRef.current = [];
-    prevStateRef.current = null;
+    historyRef.current = createPackedSnapshotRing();
+    prevLiveRef.current = null;
     personalReplayRef.current = false;
     lastHostAtRef.current = 0;
     lastHostTickRef.current = -1;
+    sentOverReplayRef.current = false;
     setPersonalReplay(null);
   }, [roomId]);
 
+  const personalReplayActive = personalReplay !== null;
   useEffect(() => {
-    const previous = prevStateRef.current;
-    const me = identityRef.current.playerId;
-    if (
-      previous &&
-      state &&
-      !personalReplayRef.current &&
-      shouldPersonalSlowMo(previous, state, me)
-    ) {
-      const crash = snapshotMp(state);
-      personalReplayRef.current = true;
-      setPersonalReplay({
-        frames: [...historyRef.current, crash, crash, crash],
-        index: 0,
-        deaths: state.lastDeaths.filter((death) => death.playerId === me),
-      });
-    }
-    if (state?.status === "playing") {
-      if (previous?.status !== "playing" || previous.tick !== state.tick) {
-        historyRef.current = [
-          ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
-          snapshotMp(state),
-        ];
-      }
-    }
-    if (
-      state?.status === "replay" ||
-      state?.status === "over" ||
-      state?.status === "lobby" ||
-      state?.status === "countdown"
-    ) {
-      personalReplayRef.current = false;
-      setPersonalReplay(null);
-      historyRef.current = [];
-    }
-    prevStateRef.current = state;
-  }, [state]);
-
-  useEffect(() => {
-    if (!personalReplay) {
+    if (!personalReplayActive) {
       return;
     }
     if (state?.status === "replay" || state?.status === "over") {
@@ -364,7 +409,7 @@ export function useMultiplayerRoom(
     return () => {
       window.clearInterval(id);
     };
-  }, [personalReplay !== null, state?.status]);
+  }, [personalReplayActive, state?.status]);
 
   useEffect(() => {
     if (!isHost || state?.status !== "countdown") {
@@ -391,19 +436,30 @@ export function useMultiplayerRoom(
   }, [isHost, publish, state?.status]);
 
   useEffect(() => {
-    const hostLive =
-      isHost && (state?.status === "playing" || state?.status === "replay");
-    const localClip = state?.status === "replay" && localReplayRef.current;
-    if (!hostLive && !localClip) {
+    const playing = state?.status === "playing";
+    const replaying = state?.status === "replay";
+    const hostLive = isHost && (playing || replaying);
+    const guestLive = !isHost && playing;
+    const localClip = replaying && localReplayRef.current;
+    if (!hostLive && !guestLive && !localClip) {
       return;
     }
     let last = performance.now();
     let frame = 0;
-    const step = (now: number) => {
+    const step = () => {
+      const now = performance.now();
       const current = stateRef.current;
       if (
         !current ||
         (current.status !== "playing" && current.status !== "replay")
+      ) {
+        frame = window.requestAnimationFrame(step);
+        return;
+      }
+      if (
+        current.status === "replay" &&
+        !isHostRef.current &&
+        !localReplayRef.current
       ) {
         frame = window.requestAnimationFrame(step);
         return;
@@ -442,7 +498,7 @@ export function useMultiplayerRoom(
         if (shouldSlowMo(next, after)) {
           const crash = snapshotMp(after);
           next = beginReplay(after, [
-            ...historyRef.current,
+            ...historyRef.current.unpack(),
             crash,
             crash,
             crash,
@@ -465,8 +521,7 @@ export function useMultiplayerRoom(
         if (isHostRef.current && !localReplayRef.current) {
           publish(next);
         } else {
-          stateRef.current = next;
-          setState(next);
+          commitState(next);
         }
       }
       frame = window.requestAnimationFrame(step);
@@ -475,31 +530,7 @@ export function useMultiplayerRoom(
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [isHost, publish, state?.status]);
-
-  useEffect(() => {
-    if (isHost || state?.status !== "playing") {
-      return;
-    }
-    const id = window.setInterval(() => {
-      if (isHostRef.current) {
-        return;
-      }
-      const current = stateRef.current;
-      if (current?.status !== "playing") {
-        return;
-      }
-      if (performance.now() - lastHostAtRef.current < MP_TICK_MS) {
-        return;
-      }
-      const next = tickMp(current);
-      stateRef.current = next;
-      setState(next);
-    }, MP_TICK_MS);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, [isHost, state?.status]);
+  }, [commitState, isHost, publish, state?.status]);
 
   useEffect(() => {
     if (state?.status === "playing" || state?.status === "replay") {
@@ -516,11 +547,11 @@ export function useMultiplayerRoom(
       return;
     }
     void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
     if (isHostRef.current) {
-      const current = stateRef.current;
-      if (!current) {
-        return;
-      }
       const next = queueMpInput(
         current,
         identityRef.current.playerId,
@@ -535,8 +566,7 @@ export function useMultiplayerRoom(
       stateRef.current = next;
       return;
     }
-    const current = stateRef.current;
-    if (current?.status !== "playing" && current?.status !== "countdown") {
+    if (current.status !== "playing" && current.status !== "countdown") {
       return;
     }
     snakeAudio.playMove(direction);
@@ -550,16 +580,15 @@ export function useMultiplayerRoom(
 
   const sendFire = useCallback(() => {
     void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
     if (isHostRef.current) {
-      const current = stateRef.current;
-      if (!current) {
-        return;
-      }
       stateRef.current = queueMpFire(current, identityRef.current.playerId);
       return;
     }
-    const current = stateRef.current;
-    if (current?.status !== "playing") {
+    if (current.status !== "playing") {
       return;
     }
     stateRef.current = queueMpFire(current, identityRef.current.playerId);
@@ -568,20 +597,36 @@ export function useMultiplayerRoom(
 
   const sendTurbo = useCallback(() => {
     void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
     if (isHostRef.current) {
-      const current = stateRef.current;
-      if (!current) {
-        return;
-      }
       stateRef.current = queueMpTurbo(current, identityRef.current.playerId);
       return;
     }
-    const current = stateRef.current;
-    if (current?.status !== "playing") {
+    if (current.status !== "playing") {
       return;
     }
     stateRef.current = queueMpTurbo(current, identityRef.current.playerId);
     roomRef.current?.sendTurbo();
+  }, []);
+
+  const sendBomb = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    if (isHostRef.current) {
+      stateRef.current = queueMpBomb(current, identityRef.current.playerId);
+      return;
+    }
+    if (current.status !== "playing") {
+      return;
+    }
+    stateRef.current = queueMpBomb(current, identityRef.current.playerId);
+    roomRef.current?.sendBomb();
   }, []);
 
   const toggleReady = useCallback(() => {
@@ -621,10 +666,8 @@ export function useMultiplayerRoom(
       return;
     }
     localReplayRef.current = true;
-    const next = beginReplay(current, current.replay);
-    stateRef.current = next;
-    setState(next);
-  }, []);
+    commitState(beginReplay(current, current.replay), { forceHud: true });
+  }, [commitState]);
 
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
@@ -633,6 +676,7 @@ export function useMultiplayerRoom(
           snakes: frame.snakes,
           foods: frame.foods,
           shots: frame.shots,
+          bombs: frame.bombs,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -640,6 +684,9 @@ export function useMultiplayerRoom(
   return {
     playerId: identityRef.current.playerId,
     state,
+    liveRef: stateRef,
+    prevLiveRef,
+    lastTickAtRef,
     players,
     isHost,
     ready,
@@ -650,8 +697,10 @@ export function useMultiplayerRoom(
     sendDirection,
     sendFire,
     sendTurbo,
+    sendBomb,
     toggleReady,
     setColor,
     replaySlowMo,
+    getNetBps: () => roomRef.current?.throughput() ?? 0,
   };
 }

@@ -6,6 +6,8 @@ import {
   isSnakeColor,
   nextFreeColor,
   SNAKE_COLORS,
+  snakeSegmentColor,
+  snakeSwatch,
 } from './snakeColors';
 
 describe('snakeColors', () => {
@@ -42,5 +44,20 @@ describe('snakeColors', () => {
     ]);
     expect(resolved[0].color).toBe(SNAKE_COLORS[3]);
     expect(resolved[1].color).toBe(DEFAULT_SNAKE_COLOR);
+  });
+
+  it('accepts patterned and rainbow skins', () => {
+    expect(isSnakeColor('coral')).toBe(true);
+    expect(isSnakeColor('krait')).toBe(true);
+    expect(isSnakeColor('coral3')).toBe(true);
+    expect(isSnakeColor('rainbow')).toBe(true);
+    expect(snakeSegmentColor('coral', 0, 0)).toBe('#c1121f');
+    expect(snakeSegmentColor('coral', 1, 0)).toBe('#111111');
+    expect(snakeSegmentColor('krait', 0, 0)).toBe('#f4d35e');
+    expect(snakeSegmentColor('coral3', 2, 0)).toBe('#111111');
+    expect(snakeSegmentColor('rainbow', 0, 0)).not.toBe(
+      snakeSegmentColor('rainbow', 0, 1),
+    );
+    expect(snakeSwatch('coral')).toContain('repeating-linear-gradient');
   });
 });

@@ -2,19 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { snakeAudio } from "../audio/snakeAudio";
 import { isDirection, randomSeed } from "../game/engine";
+import { mpHudKey } from "../game/hudState";
 import {
   advanceCountdown,
   advanceReplay,
   beginReplay,
   beginRound,
   createMpLobby,
+  createPackedSnapshotRing,
   MP_COUNTDOWN_MS,
-  MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
   type MpDeath,
   type MpPlayer,
   type MpSnapshot,
   type MpState,
+  queueMpBomb,
   queueMpFire,
   queueMpInput,
   queueMpTurbo,
@@ -23,6 +25,7 @@ import {
   snapshotMp,
   tickMp,
 } from "../game/multiplayerEngine";
+import { shouldLerpMp } from "../game/paintBoard";
 import { loadPreferredColor } from "../game/snakeColors";
 import type { Direction } from "../game/types";
 import {
@@ -56,14 +59,14 @@ export function useAiMatch(playerName: string) {
     createAiPlayers({ name: playerName, color: loadPreferredColor() }),
   );
   const [state, setState] = useState<MpState | null>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const stateRef = useRef<MpState | null>(null);
+  const prevLiveRef = useRef<MpState | null>(null);
+  const lastTickAtRef = useRef(0);
   const playersRef = useRef(players);
   playersRef.current = players;
   const nameRef = useRef(playerName);
   nameRef.current = playerName;
-  const historyRef = useRef<MpSnapshot[]>([]);
-  const prevStateRef = useRef<MpState | null>(null);
+  const historyRef = useRef(createPackedSnapshotRing());
   const personalReplayRef = useRef(false);
   const [personalReplay, setPersonalReplay] = useState<{
     frames: MpSnapshot[];
@@ -73,6 +76,68 @@ export function useAiMatch(playerName: string) {
   const eliminatedRef = useRef(false);
   const [eliminated, setEliminated] = useState(false);
 
+  const commitState = useCallback(
+    (next: MpState, options?: { forceHud?: boolean }) => {
+      const previous = stateRef.current;
+      if (previous && shouldLerpMp(previous, next)) {
+        prevLiveRef.current = previous;
+        lastTickAtRef.current = performance.now();
+      } else if (
+        previous &&
+        (previous.tick !== next.tick ||
+          previous.replayIndex !== next.replayIndex ||
+          previous.status !== next.status)
+      ) {
+        prevLiveRef.current = null;
+        lastTickAtRef.current = performance.now();
+      }
+      if (
+        previous &&
+        !personalReplayRef.current &&
+        shouldPersonalSlowMo(previous, next, AI_YOU_ID)
+      ) {
+        const crash = snapshotMp(next);
+        personalReplayRef.current = true;
+        setPersonalReplay({
+          frames: [...historyRef.current.unpack(), crash, crash, crash],
+          index: 0,
+          deaths: next.lastDeaths.filter(
+            (death) => death.playerId === AI_YOU_ID,
+          ),
+        });
+      }
+      if (next.status === "playing") {
+        if (previous?.status !== "playing" || previous.tick !== next.tick) {
+          historyRef.current.push(next);
+        }
+      }
+      if (
+        next.status === "replay" ||
+        next.status === "over" ||
+        next.status === "countdown"
+      ) {
+        personalReplayRef.current = false;
+        setPersonalReplay(null);
+        historyRef.current.clear();
+      }
+      const you = next.snakes.find((snake) => snake.id === AI_YOU_ID);
+      if (you?.alive) {
+        if (eliminatedRef.current) {
+          eliminatedRef.current = false;
+          setEliminated(false);
+        }
+      } else if (you && !you.alive && !eliminatedRef.current) {
+        eliminatedRef.current = true;
+        setEliminated(true);
+      }
+      stateRef.current = next;
+      if (options?.forceHud || mpHudKey(previous) !== mpHudKey(next)) {
+        setState(next);
+      }
+    },
+    [],
+  );
+
   const beginMatch = useCallback(() => {
     const seed = randomSeed();
     const roster = createAiPlayers({
@@ -81,70 +146,27 @@ export function useAiMatch(playerName: string) {
     });
     setPlayers(roster);
     playersRef.current = roster;
-    historyRef.current = [];
+    historyRef.current.clear();
     personalReplayRef.current = false;
     setPersonalReplay(null);
     eliminatedRef.current = false;
     setEliminated(false);
-    const next = beginRound(createMpLobby(roster, seed), seed, {
-      resetMatch: true,
-    });
-    stateRef.current = next;
-    setState(next);
-  }, []);
+    prevLiveRef.current = null;
+    commitState(
+      beginRound(createMpLobby(roster, seed), seed, {
+        resetMatch: true,
+      }),
+      { forceHud: true },
+    );
+  }, [commitState]);
 
   useEffect(() => {
     beginMatch();
   }, [beginMatch]);
 
+  const personalReplayActive = personalReplay !== null;
   useEffect(() => {
-    const previous = prevStateRef.current;
-    if (
-      previous &&
-      state &&
-      !personalReplayRef.current &&
-      shouldPersonalSlowMo(previous, state, AI_YOU_ID)
-    ) {
-      const crash = snapshotMp(state);
-      personalReplayRef.current = true;
-      setPersonalReplay({
-        frames: [...historyRef.current, crash, crash, crash],
-        index: 0,
-        deaths: state.lastDeaths.filter(
-          (death) => death.playerId === AI_YOU_ID,
-        ),
-      });
-    }
-    if (state?.status === "playing") {
-      if (previous?.status !== "playing" || previous.tick !== state.tick) {
-        historyRef.current = [
-          ...historyRef.current.slice(-(MP_REPLAY_FRAMES - 1)),
-          snapshotMp(state),
-        ];
-      }
-    }
-    if (
-      state?.status === "replay" ||
-      state?.status === "over" ||
-      state?.status === "countdown"
-    ) {
-      personalReplayRef.current = false;
-      setPersonalReplay(null);
-      historyRef.current = [];
-    }
-    prevStateRef.current = state;
-    const you = state?.snakes.find((snake) => snake.id === AI_YOU_ID);
-    if (you?.alive) {
-      eliminatedRef.current = false;
-      setEliminated(false);
-    } else if (you && !you.alive && !eliminatedRef.current) {
-      eliminatedRef.current = true;
-      setEliminated(true);
-    }
-  }, [state]);
-
-  useEffect(() => {
-    if (!personalReplay) {
+    if (!personalReplayActive) {
       return;
     }
     if (state?.status === "replay" || state?.status === "over") {
@@ -165,7 +187,7 @@ export function useAiMatch(playerName: string) {
     return () => {
       window.clearInterval(id);
     };
-  }, [personalReplay !== null, state?.status]);
+  }, [personalReplayActive, state?.status]);
 
   useEffect(() => {
     if (state?.status !== "countdown") {
@@ -180,13 +202,12 @@ export function useAiMatch(playerName: string) {
       if (next.status === "playing") {
         snakeAudio.playStart();
       }
-      stateRef.current = next;
-      setState(next);
+      commitState(next);
     }, MP_COUNTDOWN_MS);
     return () => {
       window.clearInterval(id);
     };
-  }, [state?.status]);
+  }, [commitState, state?.status]);
 
   useEffect(() => {
     if (state?.status !== "playing" && state?.status !== "replay") {
@@ -194,7 +215,8 @@ export function useAiMatch(playerName: string) {
     }
     let last = performance.now();
     let frame = 0;
-    const step = (now: number) => {
+    const step = () => {
+      const now = performance.now();
       const current = stateRef.current;
       if (
         !current ||
@@ -212,7 +234,6 @@ export function useAiMatch(playerName: string) {
       let next = current;
       let ate = false;
       let died = false;
-      let stepped = 0;
       while (now - last >= delay) {
         last += delay;
         if (next.status === "replay") {
@@ -241,7 +262,7 @@ export function useAiMatch(playerName: string) {
         if (shouldSlowMo(queued, after)) {
           const crash = snapshotMp(after);
           next = beginReplay(after, [
-            ...historyRef.current,
+            ...historyRef.current.unpack(),
             crash,
             crash,
             crash,
@@ -249,10 +270,7 @@ export function useAiMatch(playerName: string) {
           break;
         }
         next = after;
-        stepped += 1;
-        if (!fast || stepped >= 4) {
-          break;
-        }
+        break;
       }
       if (now - last > delay * 4) {
         last = now - delay;
@@ -264,8 +282,7 @@ export function useAiMatch(playerName: string) {
         if (died) {
           snakeAudio.playDie();
         }
-        stateRef.current = next;
-        setState(next);
+        commitState(next);
       }
       frame = window.requestAnimationFrame(step);
     };
@@ -273,7 +290,7 @@ export function useAiMatch(playerName: string) {
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [state?.status]);
+  }, [commitState, state?.status]);
 
   useEffect(() => {
     if (state?.status === "playing" || state?.status === "replay") {
@@ -322,6 +339,15 @@ export function useAiMatch(playerName: string) {
     stateRef.current = queueMpTurbo(current, AI_YOU_ID);
   }, []);
 
+  const sendBomb = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    stateRef.current = queueMpBomb(current, AI_YOU_ID);
+  }, []);
+
   const rematch = useCallback(() => {
     const current = stateRef.current;
     if (!current) {
@@ -344,10 +370,8 @@ export function useAiMatch(playerName: string) {
     if (current?.status !== "over" || current.replay.length === 0) {
       return;
     }
-    const next = beginReplay(current, current.replay);
-    stateRef.current = next;
-    setState(next);
-  }, []);
+    commitState(beginReplay(current, current.replay), { forceHud: true });
+  }, [commitState]);
 
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
@@ -356,6 +380,7 @@ export function useAiMatch(playerName: string) {
           snakes: frame.snakes,
           foods: frame.foods,
           shots: frame.shots,
+          bombs: frame.bombs,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -363,12 +388,16 @@ export function useAiMatch(playerName: string) {
   return {
     playerId: AI_YOU_ID,
     state,
+    liveRef: stateRef,
+    prevLiveRef,
+    lastTickAtRef,
     players,
     personalView,
     eliminated,
     sendDirection,
     sendFire,
     sendTurbo,
+    sendBomb,
     rematch,
     replaySlowMo,
   };

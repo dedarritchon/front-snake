@@ -42,12 +42,86 @@ export interface AiAction {
 const TURN: Direction[] = ["up", "right", "down", "left"];
 const INF = 10_000;
 
-function cellKey(point: Point): string {
-  return `${point.x},${point.y}`;
+function cellIndex(point: Point): number {
+  return point.y * MP_GRID_WIDTH + point.x;
 }
 
 function pointsEqual(a: Point, b: Point): boolean {
   return a.x === b.x && a.y === b.y;
+}
+
+function occupancy(state: MpState, self: MpSnake, next: Point): Set<number> {
+  const eating = state.foods.some((food) => pointsEqual(food, next));
+  const blocked = new Set<number>();
+  for (const snake of state.snakes) {
+    if (!snake.alive) {
+      continue;
+    }
+    const skipTail = snake.id === self.id && !eating && snake.body.length > 0;
+    const body = skipTail ? snake.body.slice(0, -1) : snake.body;
+    for (const point of body) {
+      blocked.add(cellIndex(point));
+    }
+  }
+  return blocked;
+}
+
+function bfsDist(
+  start: Point,
+  goals: Point[],
+  blocked: Set<number>,
+  cap = 80,
+): number {
+  if (goals.length === 0) {
+    return INF;
+  }
+  const want = new Set(goals.map(cellIndex));
+  if (want.has(cellIndex(start))) {
+    return 0;
+  }
+  const seen = new Set<number>([cellIndex(start)]);
+  const queue: { point: Point; dist: number }[] = [{ point: start, dist: 0 }];
+  let cursor = 0;
+  while (cursor < queue.length) {
+    const node = queue[cursor];
+    cursor += 1;
+    if (node.dist >= cap) {
+      return INF;
+    }
+    for (const dir of TURN) {
+      const step = ahead(node.point, dir);
+      const key = cellIndex(step);
+      if (!inBounds(step) || blocked.has(key) || seen.has(key)) {
+        continue;
+      }
+      if (want.has(key)) {
+        return node.dist + 1;
+      }
+      seen.add(key);
+      queue.push({ point: step, dist: node.dist + 1 });
+    }
+  }
+  return INF;
+}
+
+function flood(start: Point, blocked: Set<number>, cap = 48): number {
+  const seen = new Set<number>([cellIndex(start)]);
+  const queue: Point[] = [start];
+  let cursor = 0;
+  while (cursor < queue.length && seen.size < cap) {
+    const point = queue[cursor];
+    cursor += 1;
+    for (const dir of TURN) {
+      const step = ahead(point, dir);
+      const key = cellIndex(step);
+      if (!inBounds(step) || blocked.has(key) || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      queue.push(step);
+    }
+  }
+  return seen.size;
 }
 
 function ahead(point: Point, direction: Direction): Point {
@@ -120,80 +194,6 @@ export function createAiPlayers(you: {
   ];
 }
 
-function occupancy(state: MpState, self: MpSnake, next: Point): Set<string> {
-  const eating = state.foods.some((food) => pointsEqual(food, next));
-  const blocked = new Set<string>();
-  for (const snake of state.snakes) {
-    if (!snake.alive) {
-      continue;
-    }
-    const skipTail = snake.id === self.id && !eating && snake.body.length > 0;
-    const body = skipTail ? snake.body.slice(0, -1) : snake.body;
-    for (const point of body) {
-      blocked.add(cellKey(point));
-    }
-  }
-  return blocked;
-}
-
-function bfsDist(
-  start: Point,
-  goals: Point[],
-  blocked: Set<string>,
-  cap = 80,
-): number {
-  if (goals.length === 0) {
-    return INF;
-  }
-  const want = new Set(goals.map(cellKey));
-  if (want.has(cellKey(start))) {
-    return 0;
-  }
-  const seen = new Set<string>([cellKey(start)]);
-  const queue: { point: Point; dist: number }[] = [{ point: start, dist: 0 }];
-  let cursor = 0;
-  while (cursor < queue.length) {
-    const node = queue[cursor];
-    cursor += 1;
-    if (node.dist >= cap) {
-      return INF;
-    }
-    for (const dir of TURN) {
-      const step = ahead(node.point, dir);
-      const key = cellKey(step);
-      if (!inBounds(step) || blocked.has(key) || seen.has(key)) {
-        continue;
-      }
-      if (want.has(key)) {
-        return node.dist + 1;
-      }
-      seen.add(key);
-      queue.push({ point: step, dist: node.dist + 1 });
-    }
-  }
-  return INF;
-}
-
-function flood(start: Point, blocked: Set<string>, cap = 48): number {
-  const seen = new Set<string>([cellKey(start)]);
-  const queue: Point[] = [start];
-  let cursor = 0;
-  while (cursor < queue.length && seen.size < cap) {
-    const point = queue[cursor];
-    cursor += 1;
-    for (const dir of TURN) {
-      const step = ahead(point, dir);
-      const key = cellKey(step);
-      if (!inBounds(step) || blocked.has(key) || seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      queue.push(step);
-    }
-  }
-  return seen.size;
-}
-
 type RayHit = "head" | "food" | "body" | "wall";
 
 function rayHit(
@@ -244,7 +244,7 @@ function foodGoals(
   state: MpState,
   self: MpSnake,
   kind: AiKind,
-  blocked: Set<string>,
+  blocked: Set<number>,
 ): Point[] {
   if (state.foods.length === 0) {
     return [];
@@ -299,11 +299,11 @@ function projectedHeads(
   state: MpState,
   selfId: string,
 ): {
-  contested: Set<string>;
-  cuts: Set<string>;
+  contested: Set<number>;
+  cuts: Set<number>;
 } {
-  const contested = new Set<string>();
-  const cuts = new Set<string>();
+  const contested = new Set<number>();
+  const cuts = new Set<number>();
   for (const snake of state.snakes) {
     if (!snake.alive || snake.id === selfId || !snake.body[0]) {
       continue;
@@ -313,8 +313,8 @@ function projectedHeads(
         ? snake.direction
         : snake.pending;
     const next = ahead(snake.body[0], dir);
-    contested.add(cellKey(next));
-    cuts.add(cellKey(ahead(next, dir)));
+    contested.add(cellIndex(next));
+    cuts.add(cellIndex(ahead(next, dir)));
   }
   return { contested, cuts };
 }
@@ -343,7 +343,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
       continue;
     }
     const blocked = occupancy(state, self, next);
-    if (blocked.has(cellKey(next))) {
+    if (blocked.has(cellIndex(next))) {
       continue;
     }
     const space = flood(next, blocked);
@@ -361,7 +361,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     if (!closeFood) {
       score -= edgeCost(next);
     }
-    const nextKey = cellKey(next);
+    const nextKey = cellIndex(next);
     if (contested.has(nextKey)) {
       score -= 4_000;
     }

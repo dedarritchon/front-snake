@@ -33,6 +33,29 @@ const LETTERS: Record<string, Point[]> = {
     {x: 2, y: 3},
     {x: 1, y: 4},
   ],
+  U: [
+    {x: 0, y: 0},
+    {x: 2, y: 0},
+    {x: 0, y: 1},
+    {x: 2, y: 1},
+    {x: 0, y: 2},
+    {x: 2, y: 2},
+    {x: 0, y: 3},
+    {x: 2, y: 3},
+    {x: 0, y: 4},
+    {x: 1, y: 4},
+    {x: 2, y: 4},
+  ],
+  P: [
+    {x: 0, y: 0},
+    {x: 1, y: 0},
+    {x: 0, y: 1},
+    {x: 2, y: 1},
+    {x: 0, y: 2},
+    {x: 1, y: 2},
+    {x: 0, y: 3},
+    {x: 0, y: 4},
+  ],
   N: [
     {x: 0, y: 0},
     {x: 3, y: 0},
@@ -107,12 +130,14 @@ const LETTERS: Record<string, Point[]> = {
 
 const GAP = 1;
 const LINE_GAP = 2;
-const FRONT = ['F', 'R', 'O', 'N', 'T'] as const;
+const FRONT = ['S', 'U', 'P', 'E', 'R'] as const;
 const SNAKE = ['S', 'N', 'A', 'K', 'E'] as const;
 const GLYPH_WIDTH: Record<string, number> = {
   F: 3,
   R: 3,
   O: 3,
+  U: 3,
+  P: 3,
   N: 4,
   T: 3,
   S: 3,

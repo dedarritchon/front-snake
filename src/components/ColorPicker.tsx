@@ -1,9 +1,10 @@
-import {styled} from 'styled-components';
+import { memo } from "react";
+import { styled } from "styled-components";
 
-import {SNAKE_COLORS} from '../game/snakeColors';
+import { SNAKE_COLORS, snakeSwatch } from "../game/snakeColors";
 
 const LCD = {
-  border: '#243214',
+  border: "#243214",
 };
 
 const Row = styled.div`
@@ -22,18 +23,18 @@ const Swatch = styled.button<{
   height: 16px;
   flex: 0 0 auto;
   border: 2px solid ${LCD.border};
-  background: ${(p) => p.$color};
-  outline: ${(p) => (p.$selected ? `2px dashed ${LCD.border}` : 'none')};
+  background: ${(p) => snakeSwatch(p.$color)};
+  outline: ${(p) => (p.$selected ? `2px dashed ${LCD.border}` : "none")};
   outline-offset: 2px;
   opacity: ${(p) => (p.$taken ? 0.28 : 1)};
-  cursor: ${(p) => (p.$taken ? 'not-allowed' : 'pointer')};
+  cursor: ${(p) => (p.$taken ? "not-allowed" : "pointer")};
 
   &:disabled {
     cursor: not-allowed;
   }
 `;
 
-export function ColorPicker({
+export const ColorPicker = memo(function ColorPicker({
   value,
   taken,
   disabled,
@@ -68,4 +69,4 @@ export function ColorPicker({
       })}
     </Row>
   );
-}
+});

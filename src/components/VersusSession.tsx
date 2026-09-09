@@ -49,6 +49,9 @@ export function VersusSession({
   const {
     playerId,
     state,
+    liveRef,
+    prevLiveRef,
+    lastTickAtRef,
     players,
     isHost,
     ready,
@@ -58,9 +61,11 @@ export function VersusSession({
     sendDirection,
     sendFire,
     sendTurbo,
+    sendBomb,
     toggleReady,
     setColor,
     replaySlowMo,
+    getNetBps,
   } = useMultiplayerRoom(roomId, name, claimHost);
   const [muted, setMuted] = useState(() => snakeAudio.isMuted());
   const [copied, setCopied] = useState(false);
@@ -119,6 +124,11 @@ export function VersusSession({
         sendFire();
         return;
       }
+      if (key === "b") {
+        event.preventDefault();
+        sendBomb();
+        return;
+      }
       if (key === "m") {
         event.preventDefault();
         toggleMute();
@@ -133,12 +143,15 @@ export function VersusSession({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [sendDirection, sendFire, sendTurbo, toggleMute, toggleReady]);
+  }, [sendBomb, sendDirection, sendFire, sendTurbo, toggleMute, toggleReady]);
 
   return (
     <Page>
       <VersusBoard
         state={state}
+        liveRef={liveRef}
+        prevLiveRef={prevLiveRef}
+        lastTickAtRef={lastTickAtRef}
         players={players}
         youId={playerId}
         isHost={isHost}
@@ -155,6 +168,7 @@ export function VersusSession({
         onReplay={replaySlowMo}
         onSolo={onSolo}
         onChangeColor={setColor}
+        getNetBps={getNetBps}
       />
     </Page>
   );
