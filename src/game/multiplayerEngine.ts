@@ -1384,6 +1384,13 @@ function inBounds(point: Point): boolean {
   );
 }
 
+function wrapCell(point: Point): Point {
+  return {
+    x: ((point.x % MP_GRID_WIDTH) + MP_GRID_WIDTH) % MP_GRID_WIDTH,
+    y: ((point.y % MP_GRID_HEIGHT) + MP_GRID_HEIGHT) % MP_GRID_HEIGHT,
+  };
+}
+
 function addCombat(
   combatScore: Map<string, number>,
   ownerId: string,
@@ -1595,7 +1602,10 @@ function extraTurboStep(
     nextDir.set(snake.id, dir);
     const head = snake.body[0];
     const delta = DIRECTION_DELTA[dir];
-    nextHead.set(snake.id, { x: head.x + delta.x, y: head.y + delta.y });
+    nextHead.set(
+      snake.id,
+      wrapCell({ x: head.x + delta.x, y: head.y + delta.y }),
+    );
   }
 
   applyHeadCollisions(
@@ -1812,7 +1822,22 @@ export function tickMp(state: MpState): MpState {
   const spawned: MpShot[] = [];
   for (const snake of alive) {
     let charges = Math.floor(snake.power / MP_POWER_COST);
-    if (snake.queuedFires > 0 && snake.fireCooldown <= 0 && charges > 0) {
+    const willFire =
+      snake.queuedFires > 0 && snake.fireCooldown <= 0 && charges > 0;
+    if (willFire) {
+      charges -= 1;
+    }
+    if (snake.queuedTurbo > 0 && snake.turboLeft <= 0 && charges > 0) {
+      turboStarted.add(snake.id);
+      charges -= 1;
+    }
+    if (snake.turboLeft > 0 || turboStarted.has(snake.id)) {
+      const head = nextHead.get(snake.id);
+      if (head) {
+        nextHead.set(snake.id, wrapCell(head));
+      }
+    }
+    if (willFire) {
       const dir = nextDir.get(snake.id) ?? snake.direction;
       const head = nextHead.get(snake.id) ?? snake.body[0];
       const delta = DIRECTION_DELTA[dir];
@@ -1823,11 +1848,6 @@ export function tickMp(state: MpState): MpState {
         direction: dir,
       });
       firedIds.add(snake.id);
-      charges -= 1;
-    }
-    if (snake.queuedTurbo > 0 && snake.turboLeft <= 0 && charges > 0) {
-      turboStarted.add(snake.id);
-      charges -= 1;
     }
     if (snake.queuedBombs > 0 && charges > 0 && snake.body.length > 0) {
       const tail = snake.body[snake.body.length - 1];

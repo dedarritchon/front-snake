@@ -8,7 +8,6 @@ export const SNAKE_COLORS = [
   'coral',
   'krait',
   'coral3',
-  'rainbow',
 ] as const;
 
 export type SnakeColor = (typeof SNAKE_COLORS)[number];

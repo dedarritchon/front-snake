@@ -329,6 +329,59 @@ describe("multiplayerEngine", () => {
     expect(state.status).toBe("playing");
   });
 
+  it("wraps a turbo snake through the far wall", () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 14, y: 12 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          power: MP_POWER_COST,
+          body: [
+            { x: MP_GRID_WIDTH - 1, y: 10 },
+            { x: MP_GRID_WIDTH - 2, y: 10 },
+            { x: MP_GRID_WIDTH - 3, y: 10 },
+          ],
+        },
+        state.snakes[1],
+      ],
+    };
+    const next = tickMp(queueMpTurbo(state, "a"));
+    expect(next.snakes[0].alive).toBe(true);
+    expect(next.snakes[0].body[0]).toEqual({ x: 1, y: 10 });
+  });
+
+  it("wraps a turbo snake through the top wall", () => {
+    let state = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 14, y: 12 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "up",
+          pending: "up",
+          turboLeft: 2,
+          body: [
+            { x: 10, y: 0 },
+            { x: 10, y: 1 },
+            { x: 10, y: 2 },
+          ],
+        },
+        state.snakes[1],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.snakes[0].alive).toBe(true);
+    expect(next.snakes[0].body[0]).toEqual({
+      x: 10,
+      y: MP_GRID_HEIGHT - 2,
+    });
+  });
+
   it("does not move a dead snake", () => {
     let state = startMp(createMpLobby(PLAYERS, 1));
     const body = [

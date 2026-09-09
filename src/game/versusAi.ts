@@ -46,6 +46,13 @@ function cellIndex(point: Point): number {
   return point.y * MP_GRID_WIDTH + point.x;
 }
 
+function wrapCell(point: Point): Point {
+  return {
+    x: ((point.x % MP_GRID_WIDTH) + MP_GRID_WIDTH) % MP_GRID_WIDTH,
+    y: ((point.y % MP_GRID_HEIGHT) + MP_GRID_HEIGHT) % MP_GRID_HEIGHT,
+  };
+}
+
 function pointsEqual(a: Point, b: Point): boolean {
   return a.x === b.x && a.y === b.y;
 }
@@ -124,9 +131,10 @@ function flood(start: Point, blocked: Set<number>, cap = 48): number {
   return seen.size;
 }
 
-function ahead(point: Point, direction: Direction): Point {
+function ahead(point: Point, direction: Direction, wrap = false): Point {
   const delta = DIRECTION_DELTA[direction];
-  return { x: point.x + delta.x, y: point.y + delta.y };
+  const next = { x: point.x + delta.x, y: point.y + delta.y };
+  return wrap ? wrapCell(next) : next;
 }
 
 function inBounds(point: Point): boolean {
@@ -312,9 +320,9 @@ function projectedHeads(
       OPPOSITE[snake.direction] === snake.pending
         ? snake.direction
         : snake.pending;
-    const next = ahead(snake.body[0], dir);
+    const next = ahead(snake.body[0], dir, snake.turboLeft > 0);
     contested.add(cellIndex(next));
-    cuts.add(cellIndex(ahead(next, dir)));
+    cuts.add(cellIndex(ahead(next, dir, snake.turboLeft > 0)));
   }
   return { contested, cuts };
 }
@@ -326,6 +334,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     return { dir: self?.direction ?? "right", fire: false, turbo: false };
   }
 
+  const wrapping = self.turboLeft > 0;
   const head = self.body[0];
   const { contested, cuts } = projectedHeads(state, self.id);
   const lookBlocked = occupancy(state, self, { x: -1, y: -1 });
@@ -338,8 +347,8 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     if (OPPOSITE[self.direction] === dir) {
       continue;
     }
-    const next = ahead(head, dir);
-    if (!inBounds(next)) {
+    const next = ahead(head, dir, wrapping);
+    if (!wrapping && !inBounds(next)) {
       continue;
     }
     const blocked = occupancy(state, self, next);
@@ -358,7 +367,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     if (dir === self.direction) {
       score += 18;
     }
-    if (!closeFood) {
+    if (!closeFood && !wrapping) {
       score -= edgeCost(next);
     }
     const nextKey = cellIndex(next);

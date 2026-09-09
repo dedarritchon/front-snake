@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMpLobby,
+  MP_GRID_WIDTH,
   MP_POWER_COST,
   MP_TICK_MS,
   type MpPlayer,
@@ -107,6 +108,29 @@ describe("chooseAiAction", () => {
       ],
     }));
     expect(chooseAiAction(state, "hex").dir).not.toBe("left");
+  });
+
+  it("keeps going through a wall while turbo", () => {
+    const state = place(TWO, (playing) => ({
+      ...playing,
+      foods: [{ x: MP_GRID_WIDTH - 1, y: 10 }],
+      snakes: [
+        playing.snakes[0],
+        {
+          ...playing.snakes[1],
+          id: "hex",
+          direction: "left",
+          pending: "left",
+          turboLeft: 4,
+          body: [
+            { x: 0, y: 10 },
+            { x: 1, y: 10 },
+            { x: 2, y: 10 },
+          ],
+        },
+      ],
+    }));
+    expect(chooseAiAction(state, "hex").dir).toBe("left");
   });
 
   it("walks toward a planted apple", () => {

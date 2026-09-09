@@ -65,6 +65,15 @@ describe("lerpBodies", () => {
     ]);
   });
 
+  it("slides wrap steps around the far edge", () => {
+    expect(
+      lerpBodies([{ x: 28, y: 0 }], [{ x: 0, y: 0 }], 0.5, 29, 25),
+    ).toEqual([{ x: 28.5, y: 0 }]);
+    expect(
+      lerpBodies([{ x: 0, y: 0 }], [{ x: 28, y: 0 }], 0.5, 29, 25),
+    ).toEqual([{ x: 28.5, y: 0 }]);
+  });
+
   it("returns current when t is 1", () => {
     const curr = [{ x: 2, y: 3 }];
     expect(lerpBodies([{ x: 0, y: 0 }], curr, 1)).toBe(curr);

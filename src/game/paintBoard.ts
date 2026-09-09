@@ -22,6 +22,7 @@ export interface PaintSnake {
   color: string;
   body: Point[];
   alive?: boolean;
+  turboLeft?: number;
   style?: "normal" | "logo" | "ambient";
 }
 
@@ -97,25 +98,63 @@ export function lerpAmount(
   return t;
 }
 
-function lerpAxis(from: Point, to: Point, t: number): Point {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
+function wrapDelta(from: number, to: number, size: number): number {
+  if (size <= 0) {
+    return to - from;
+  }
+  let delta = to - from;
+  const half = size / 2;
+  if (delta > half) {
+    delta -= size;
+  } else if (delta < -half) {
+    delta += size;
+  }
+  return delta;
+}
+
+function wrapCoord(value: number, size: number): number {
+  if (size <= 0) {
+    return value;
+  }
+  return ((value % size) + size) % size;
+}
+
+function lerpAxis(
+  from: Point,
+  to: Point,
+  t: number,
+  cols: number,
+  rows: number,
+): Point {
+  const dx = wrapDelta(from.x, to.x, cols);
+  const dy = wrapDelta(from.y, to.y, rows);
   if (dx !== 0 && dy !== 0) {
     const ax = Math.abs(dx);
     const ay = Math.abs(dy);
     const dist = t * (ax + ay);
     if (dist <= ax) {
-      return { x: from.x + Math.sign(dx) * dist, y: from.y };
+      return {
+        x: wrapCoord(from.x + Math.sign(dx) * dist, cols),
+        y: wrapCoord(from.y, rows),
+      };
     }
-    return { x: to.x, y: from.y + Math.sign(dy) * (dist - ax) };
+    return {
+      x: wrapCoord(from.x + dx, cols),
+      y: wrapCoord(from.y + Math.sign(dy) * (dist - ax), rows),
+    };
   }
-  return { x: from.x + dx * t, y: from.y + dy * t };
+  return {
+    x: wrapCoord(from.x + dx * t, cols),
+    y: wrapCoord(from.y + dy * t, rows),
+  };
 }
 
 export function lerpBodies(
   prev: Point[] | undefined,
   curr: Point[],
   t: number,
+  cols = 0,
+  rows = 0,
 ): Point[] {
   if (!prev || t >= 1) {
     return curr;
@@ -129,7 +168,7 @@ export function lerpBodies(
   const shared = Math.min(prev.length, curr.length);
   const out: Point[] = [];
   for (let i = 0; i < shared; i += 1) {
-    out.push(lerpAxis(prev[i], curr[i], t));
+    out.push(lerpAxis(prev[i], curr[i], t, cols, rows));
   }
   for (let i = shared; i < curr.length; i += 1) {
     out.push(curr[i]);
@@ -263,7 +302,11 @@ function paintOneSnake(
   ctx.globalAlpha = alpha;
   for (let index = 0; index < body.length; index += 1) {
     const segment = body[index];
-    ctx.fillStyle = snakeSegmentColor(snake.color, index, tick);
+    ctx.fillStyle = snakeSegmentColor(
+      (snake.turboLeft ?? 0) > 0 ? "rainbow" : snake.color,
+      index,
+      tick,
+    );
     ctx.fillRect(
       segment.x * cellW + padX,
       segment.y * cellH + padY,
@@ -444,7 +487,7 @@ export function paintGrid(
 
   const draw = (snake: PaintSnake) => {
     const from = snake.id ? prevById.get(snake.id) : undefined;
-    const body = lerpBodies(from?.body, snake.body, t);
+    const body = lerpBodies(from?.body, snake.body, t, cols, rows);
     paintOneSnake(ctx, snake, body, cellW, cellH, tick);
   };
 
@@ -479,7 +522,14 @@ export function paintGrid(
   const colors = new Map<string, string>();
   for (const snake of snakes) {
     if (snake.id) {
-      colors.set(snake.id, snakeSegmentColor(snake.color, 0, tick));
+      colors.set(
+        snake.id,
+        snakeSegmentColor(
+          (snake.turboLeft ?? 0) > 0 ? "rainbow" : snake.color,
+          0,
+          tick,
+        ),
+      );
     }
   }
   if (shots.length > 0) {
