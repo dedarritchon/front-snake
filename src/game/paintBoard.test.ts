@@ -34,7 +34,27 @@ describe("lerpBodies", () => {
     expect(lerpBodies(prev, curr, 0.5)).toEqual([
       { x: 5, y: 9.5 },
       { x: 5, y: 10 },
+      { x: 5, y: 11 },
       { x: 4.5, y: 11 },
+    ]);
+  });
+
+  it("keeps a crawling body overlapping so it does not split", () => {
+    const prev = [
+      { x: 2, y: 1 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ];
+    const curr = [
+      { x: 3, y: 1 },
+      { x: 2, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    expect(lerpBodies(prev, curr, 0.5)).toEqual([
+      { x: 2.5, y: 1 },
+      { x: 2, y: 1 },
+      { x: 1, y: 1 },
+      { x: 0.5, y: 1 },
     ]);
   });
 
