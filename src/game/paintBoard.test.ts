@@ -6,6 +6,7 @@ import {
   lerpAmount,
   lerpBodies,
   shouldLerpMp,
+  torusShifts,
 } from "./paintBoard";
 
 describe("lerpBodies", () => {
@@ -100,6 +101,26 @@ describe("elbowRadii", () => {
     expect(
       elbowRadii({ x: 5, y: 4 }, { x: 5, y: 5 }, { x: 5, y: 6 }, 8),
     ).toBeNull();
+  });
+
+  it("keeps a sliding turn square until it sits on a cell", () => {
+    expect(
+      elbowRadii({ x: 5, y: 9.5 }, { x: 5, y: 10.5 }, { x: 4.5, y: 11 }, 8),
+    ).toBeNull();
+  });
+});
+
+describe("torusShifts", () => {
+  it("redraws a block that slides off the far edge", () => {
+    expect(torusShifts(28.5, 0, 29, 25)).toEqual([
+      { x: 0, y: 0 },
+      { x: -29, y: 0 },
+    ]);
+    expect(torusShifts(0, 24.5, 29, 25)).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: -25 },
+    ]);
+    expect(torusShifts(5, 5, 29, 25)).toEqual([{ x: 0, y: 0 }]);
   });
 });
 

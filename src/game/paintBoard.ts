@@ -176,6 +176,27 @@ export function lerpBodies(
   return out;
 }
 
+function lerpShots(
+  prev: PaintShot[] | undefined,
+  curr: PaintShot[],
+  t: number,
+): PaintShot[] {
+  if (prev?.length !== curr.length || t >= 1) {
+    return curr;
+  }
+  return curr.map((shot, index) => {
+    const from = prev[index];
+    if (from.ownerId !== shot.ownerId) {
+      return shot;
+    }
+    return {
+      ownerId: shot.ownerId,
+      x: from.x + (shot.x - from.x) * t,
+      y: from.y + (shot.y - from.y) * t,
+    };
+  });
+}
+
 function syncCanvasSize(
   canvas: HTMLCanvasElement,
   cache: CanvasPaintCache,
@@ -275,6 +296,10 @@ function innerCorner(a: Side, b: Side): 0 | 1 | 2 | 3 | null {
   return null;
 }
 
+function onCell(value: number): boolean {
+  return Math.abs(value - Math.round(value)) < 0.02;
+}
+
 function elbowCorner(
   towardHead: Point | undefined,
   curr: Point,
@@ -285,12 +310,34 @@ function elbowCorner(
   if (!towardHead || !towardTail) {
     return null;
   }
+  if (!onCell(curr.x) || !onCell(curr.y)) {
+    return null;
+  }
   const a = neighborSide(curr, towardHead, cols, rows);
   const b = neighborSide(curr, towardTail, cols, rows);
   if (!a || !b) {
     return null;
   }
   return innerCorner(a, b);
+}
+
+export function torusShifts(
+  x: number,
+  y: number,
+  cols: number,
+  rows: number,
+): Point[] {
+  const shifts: Point[] = [{ x: 0, y: 0 }];
+  if (cols > 0 && x + 1 > cols) {
+    shifts.push({ x: -cols, y: 0 });
+  }
+  if (rows > 0 && y + 1 > rows) {
+    shifts.push({ x: 0, y: -rows });
+  }
+  if (cols > 0 && rows > 0 && x + 1 > cols && y + 1 > rows) {
+    shifts.push({ x: -cols, y: -rows });
+  }
+  return shifts;
 }
 
 export function elbowRadii(
@@ -380,14 +427,24 @@ function paintOneSnake(
       index,
       tick,
     );
-    fillSegment(
-      ctx,
-      segment.x * cellW + padX,
-      segment.y * cellH + padY,
-      sizeW,
-      sizeH,
-      elbowRadii(body[index - 1], segment, body[index + 1], bend, cols, rows),
+    const radii = elbowRadii(
+      body[index - 1],
+      segment,
+      body[index + 1],
+      bend,
+      cols,
+      rows,
     );
+    for (const shift of torusShifts(segment.x, segment.y, cols, rows)) {
+      fillSegment(
+        ctx,
+        (segment.x + shift.x) * cellW + padX,
+        (segment.y + shift.y) * cellH + padY,
+        sizeW,
+        sizeH,
+        radii,
+      );
+    }
   }
   if (style === "normal" && !alive && body[0]) {
     ctx.globalAlpha = 0.7;
@@ -530,12 +587,12 @@ export function paintGrid(
   snakes: PaintSnake[],
   foods: Point[],
   shots: PaintShot[] = [],
-  _prev?: {
+  prev?: {
     snakes?: PaintSnake[];
     foods?: Point[];
     shots?: PaintShot[];
   } | null,
-  _t = 1,
+  t = 1,
   extras?: PaintGridExtras,
 ): void {
   const ctx = syncCanvasSize(canvas, cache);
@@ -551,8 +608,19 @@ export function paintGrid(
   const cellW = width / cols;
   const cellH = height / rows;
   const tick = extras?.tick ?? 0;
+  const prevById = new Map<string, PaintSnake>();
+  if (prev?.snakes && t < 1) {
+    for (const snake of prev.snakes) {
+      if (snake.id) {
+        prevById.set(snake.id, snake);
+      }
+    }
+  }
+
   const draw = (snake: PaintSnake) => {
-    paintOneSnake(ctx, snake, snake.body, cellW, cellH, tick, cols, rows);
+    const from = snake.id ? prevById.get(snake.id) : undefined;
+    const body = lerpBodies(from?.body, snake.body, t, cols, rows);
+    paintOneSnake(ctx, snake, body, cellW, cellH, tick, cols, rows);
   };
 
   let anyDead = false;
@@ -597,9 +665,10 @@ export function paintGrid(
     }
   }
   if (shots.length > 0) {
+    const drawnShots = lerpShots(prev?.shots, shots, t);
     const padX = cellW * 0.22;
     const padY = cellH * 0.22;
-    for (const shot of shots) {
+    for (const shot of drawnShots) {
       ctx.fillStyle = colors.get(shot.ownerId) ?? LCD.pixel;
       ctx.fillRect(
         shot.x * cellW + padX,

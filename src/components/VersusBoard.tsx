@@ -25,8 +25,10 @@ import {
   clearBoard,
   createCanvasPaintCache,
   LCD,
+  lerpAmount,
   paintGrid,
   setCanvasCssSize,
+  shouldLerpMp,
 } from "../game/paintBoard";
 import { snakeSwatch } from "../game/snakeColors";
 import type { Point } from "../game/types";
@@ -407,6 +409,7 @@ function winnerName(state: MpState): string {
 export function VersusBoard({
   state,
   liveRef,
+  prevLiveRef,
   lastTickAtRef,
   players,
   youId,
@@ -544,6 +547,9 @@ export function VersusBoard({
       const currBlasts = viewing
         ? (personal?.blasts ?? live.blasts)
         : live.blasts;
+      const prev = viewing ? null : prevLiveRef.current;
+      const lerp = !viewing && prev ? shouldLerpMp(prev, live) : false;
+      const t = lerpAmount(lastTickAtRef.current, mpTickMs(live), now, !lerp);
       paintGrid(
         canvas,
         cache,
@@ -552,8 +558,10 @@ export function VersusBoard({
         currSnakes,
         currFoods,
         currShots,
-        null,
-        1,
+        lerp && prev
+          ? { snakes: prev.snakes, foods: prev.foods, shots: prev.shots }
+          : null,
+        t,
         {
           tick: live.tick,
           bombs: currBombs,
@@ -580,7 +588,7 @@ export function VersusBoard({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [lastTickAtRef, liveRef]);
+  }, [lastTickAtRef, liveRef, prevLiveRef]);
 
   return (
     <Shell>
