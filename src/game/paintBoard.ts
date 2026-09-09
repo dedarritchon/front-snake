@@ -126,16 +126,13 @@ export function lerpBodies(
   if (curr.length === 0) {
     return curr;
   }
-  const out: Point[] = [lerpAxis(prev[0] ?? curr[0], curr[0], t)];
-  for (let i = 1; i < curr.length; i += 1) {
-    out.push(curr[i]);
+  const shared = Math.min(prev.length, curr.length);
+  const out: Point[] = [];
+  for (let i = 0; i < shared; i += 1) {
+    out.push(lerpAxis(prev[i], curr[i], t));
   }
-  if (curr.length > 1 && curr.length <= prev.length) {
-    const tailFrom = prev[prev.length - 1];
-    const tailTo = curr[curr.length - 1];
-    if (tailFrom.x !== tailTo.x || tailFrom.y !== tailTo.y) {
-      out.push(lerpAxis(tailFrom, tailTo, t));
-    }
+  for (let i = shared; i < curr.length; i += 1) {
+    out.push(curr[i]);
   }
   return out;
 }
