@@ -28,6 +28,7 @@ import {
   MP_POWER_COST,
   MP_REPLAY_FRAMES,
   MP_ROUNDS,
+  MP_START_POWER,
   MP_TICK_MS,
   MP_TURBO_TICKS,
   MP_WIN_LENGTH,
@@ -97,6 +98,9 @@ describe("multiplayerEngine", () => {
     expect(playing.gridHeight).toBe(MP_GRID_HEIGHT);
     expect(playing.snakes[0].body[0]).toEqual({ x: 2, y: 3 });
     expect(playing.snakes[1].body[0]).toEqual({ x: MP_GRID_WIDTH - 3, y: 3 });
+    expect(
+      playing.snakes.every((snake) => snake.power === MP_START_POWER),
+    ).toBe(true);
   });
 
   it("ignores a reverse input and lobby input", () => {
@@ -446,7 +450,9 @@ describe("multiplayerEngine", () => {
       rematch.snakes.every((snake) => snake.alive && snake.score === 0),
     ).toBe(true);
     expect(rematch.snakes.every((snake) => snake.roundWins === 0)).toBe(true);
-    expect(rematch.snakes.every((snake) => snake.power === 0)).toBe(true);
+    expect(
+      rematch.snakes.every((snake) => snake.power === MP_START_POWER),
+    ).toBe(true);
     expect(rematch.shots).toEqual([]);
     expect(rematch.snakes[0].body[0]).toEqual({ x: 2, y: 3 });
   });
@@ -730,7 +736,7 @@ describe("multiplayerEngine", () => {
     };
     state = tickMp(state);
     expect(mpRound(state.snakes)).toBe(2);
-    expect(state.snakes[0].power).toBe(1);
+    expect(state.snakes[0].power).toBe(MP_START_POWER + 1);
   });
 
   it("stores apples past three and spends three per shot", () => {
@@ -777,6 +783,7 @@ describe("multiplayerEngine", () => {
           ...state.snakes[0],
           direction: "right",
           pending: "right",
+          power: 0,
           body: [
             { x: 5, y: 10 },
             { x: 4, y: 10 },
@@ -1200,6 +1207,10 @@ describe("multiplayerEngine", () => {
     });
     expect(queueMpTurbo(counted, "a").snakes[0].queuedTurbo).toBe(0);
     let playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    playing = {
+      ...playing,
+      snakes: playing.snakes.map((snake) => ({ ...snake, power: 0 })),
+    };
     expect(queueMpTurbo(playing, "a").snakes[0].queuedTurbo).toBe(0);
     playing = {
       ...playing,
@@ -1582,7 +1593,11 @@ describe("multiplayerEngine", () => {
 
   it("ignores a bomb without a full bar and keeps guest bombs on the same tick", () => {
     const playing = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
-    expect(queueMpBomb(playing, "a").snakes[0].queuedBombs).toBe(0);
+    const empty = {
+      ...playing,
+      snakes: playing.snakes.map((snake) => ({ ...snake, power: 0 })),
+    };
+    expect(queueMpBomb(empty, "a").snakes[0].queuedBombs).toBe(0);
     const charged = {
       ...playing,
       snakes: playing.snakes.map((snake) =>

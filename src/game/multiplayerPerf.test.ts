@@ -215,7 +215,9 @@ describe("multiplayer performance", () => {
     const playing = startMp(createMpLobby(FOUR, 1));
     const turned = queueMpInput(playing, "b", "down");
     expect(queueMpInput(turned, "b", "down")).toBe(turned);
-    expect(queueMpFire(playing, "b")).toBe(playing);
+    const fired = queueMpFire(playing, "b");
+    expect(fired).not.toBe(playing);
+    expect(queueMpFire(fired, "b")).toBe(fired);
   });
 
   it("ticks a crowded board without a CPU blow-up", () => {

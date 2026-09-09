@@ -18,6 +18,7 @@ export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = SNAKE_COLORS;
 export const MP_POWER_COST = 3;
+export const MP_START_POWER = MP_POWER_COST;
 export const MP_FIRE_COOLDOWN = 2;
 export const MP_TURBO_TICKS = Math.round(1000 / MP_TICK_MS);
 export const MP_BOMB_FUSE_TICKS = Math.round(3000 / MP_TICK_MS);
@@ -1278,7 +1279,7 @@ function respawnSnakes(from: MpSnake[], resetMatch: boolean): MpSnake[] {
       pending: spawn.direction,
       alive: true,
       score: 0,
-      power: 0,
+      power: MP_START_POWER,
       queuedFires: 0,
       fireCooldown: 0,
       queuedTurbo: 0,
