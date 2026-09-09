@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createByteRate, formatMbps, payloadBytes } from "./throughput";
+import {
+  createByteRate,
+  formatMbps,
+  payloadBytes,
+  wireBitsPerSec,
+} from "./throughput";
 
 describe("formatMbps", () => {
   it("shows decimal megabits", () => {
@@ -23,5 +28,17 @@ describe("createByteRate", () => {
 describe("payloadBytes", () => {
   it("uses JSON length", () => {
     expect(payloadBytes({ a: 1 })).toBe(JSON.stringify({ a: 1 }).length);
+  });
+
+  it("counts a prestringified payload without encoding again", () => {
+    const json = JSON.stringify({ a: 1 });
+    expect(payloadBytes(json)).toBe(json.length);
+  });
+});
+
+describe("wireBitsPerSec", () => {
+  it("scales bytes by the tick rate", () => {
+    expect(wireBitsPerSec(125, 1000)).toBe(1000);
+    expect(wireBitsPerSec(0, 140)).toBe(0);
   });
 });

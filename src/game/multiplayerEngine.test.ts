@@ -107,6 +107,7 @@ describe("multiplayerEngine", () => {
     expect(state.snakes[0].pending).toBe("right");
     state = queueMpInput(state, "a", "down");
     expect(state.snakes[0].pending).toBe("down");
+    expect(queueMpInput(state, "a", "down")).toBe(state);
   });
 
   it("does not tick in the lobby", () => {
@@ -790,6 +791,7 @@ describe("multiplayerEngine", () => {
     expect(next.shots).toEqual([]);
     expect(next.snakes[0].queuedFires).toBe(0);
     expect(next.snakes[0].power).toBe(0);
+    expect(queueMpFire(next, "a")).toBe(next);
   });
 
   it("moves a shot straight and keeps it ahead of the shooter", () => {
@@ -1430,9 +1432,7 @@ describe("multiplayerEngine", () => {
     expect(state.snakes.every((snake) => snake.alive)).toBe(true);
     const next = tickMp(state);
     expect(next.bombs).toEqual([]);
-    expect(next.blasts).toEqual([
-      { x: 10, y: 10, life: MP_BLAST_TICKS },
-    ]);
+    expect(next.blasts).toEqual([{ x: 10, y: 10, life: MP_BLAST_TICKS }]);
     expect(next.snakes.every((snake) => snake.alive)).toBe(true);
     let leftover = next;
     for (let i = 0; i < MP_BLAST_TICKS; i += 1) {
@@ -1486,15 +1486,15 @@ describe("multiplayerEngine", () => {
     });
     expect(headHit.status).toBe("playing");
     expect(headHit.snakes[0].alive).toBe(false);
-    expect(headHit.blasts).toEqual([
-      { x: 10, y: 10, life: MP_BLAST_TICKS },
-    ]);
+    expect(headHit.blasts).toEqual([{ x: 10, y: 10, life: MP_BLAST_TICKS }]);
     expect(headHit.lastDeaths[0]).toMatchObject({
       playerId: "a",
       cause: "bomb",
       otherId: "a",
     });
-    expect(describeDeaths(headHit.lastDeaths, headHit.snakes)).toBe("A blew up");
+    expect(describeDeaths(headHit.lastDeaths, headHit.snakes)).toBe(
+      "A blew up",
+    );
 
     const bodyHit = tickMp({
       ...base,
@@ -1529,7 +1529,55 @@ describe("multiplayerEngine", () => {
       cause: "bomb",
       otherId: "a",
     });
-    expect(describeDeaths(bodyHit.lastDeaths, bodyHit.snakes)).toBe("A bombed B");
+    expect(describeDeaths(bodyHit.lastDeaths, bodyHit.snakes)).toBe(
+      "A bombed B",
+    );
+  });
+
+  it("kills a snake two cells from the bomb and spares three", () => {
+    const state = startMp(createMpLobby(PLAYERS, 1));
+    const parked = {
+      ...state.snakes[2],
+      direction: "right" as const,
+      pending: "right" as const,
+      body: [
+        { x: 2, y: 20 },
+        { x: 1, y: 20 },
+        { x: 0, y: 20 },
+      ],
+    };
+    const next = tickMp({
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      bombs: [{ ownerId: "a", x: 10, y: 10, fuse: 1 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 9, y: 12 },
+            { x: 8, y: 12 },
+            { x: 7, y: 12 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 9, y: 13 },
+            { x: 8, y: 13 },
+            { x: 7, y: 13 },
+          ],
+        },
+        parked,
+      ],
+    });
+    expect(next.status).toBe("playing");
+    expect(next.snakes[0].alive).toBe(false);
+    expect(next.snakes[1].alive).toBe(true);
+    expect(next.snakes[2].alive).toBe(true);
   });
 
   it("ignores a bomb without a full bar and keeps guest bombs on the same tick", () => {

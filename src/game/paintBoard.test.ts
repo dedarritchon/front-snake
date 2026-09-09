@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   bombBlinkOn,
+  createCanvasPaintCache,
   elbowRadii,
   lerpAmount,
   lerpBodies,
+  paintFrameKey,
   shouldLerpMp,
+  shouldSkipPaint,
   torusShifts,
 } from "./paintBoard";
 
@@ -85,6 +88,22 @@ describe("lerpBodies", () => {
     const curr = [{ x: 2, y: 3 }];
     expect(lerpBodies([{ x: 0, y: 0 }], curr, 1)).toBe(curr);
   });
+
+  it("writes into a scratch buffer without changing the result", () => {
+    const prev = [
+      { x: 2, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    const curr = [
+      { x: 3, y: 1 },
+      { x: 2, y: 1 },
+    ];
+    const allocated = lerpBodies(prev, curr, 0.5);
+    const scratch: { x: number; y: number }[] = [];
+    const reused = lerpBodies(prev, curr, 0.5, 0, 0, scratch);
+    expect(reused).toEqual(allocated);
+    expect(reused).toBe(scratch);
+  });
 });
 
 describe("elbowRadii", () => {
@@ -134,7 +153,7 @@ describe("lerpAmount", () => {
 });
 
 describe("shouldLerpMp", () => {
-  it("lerps one playing tick and skips jumps", () => {
+  it("lerps nearby playing ticks and skips huge jumps", () => {
     expect(
       shouldLerpMp(
         { tick: 3, replayIndex: 0, status: "playing" },
@@ -146,6 +165,18 @@ describe("shouldLerpMp", () => {
         { tick: 3, replayIndex: 0, status: "playing" },
         { tick: 5, replayIndex: 0, status: "playing" },
       ),
+    ).toBe(true);
+    expect(
+      shouldLerpMp(
+        { tick: 3, replayIndex: 0, status: "playing" },
+        { tick: 6, replayIndex: 0, status: "playing" },
+      ),
+    ).toBe(true);
+    expect(
+      shouldLerpMp(
+        { tick: 3, replayIndex: 0, status: "playing" },
+        { tick: 7, replayIndex: 0, status: "playing" },
+      ),
     ).toBe(false);
     expect(
       shouldLerpMp(
@@ -153,6 +184,25 @@ describe("shouldLerpMp", () => {
         { tick: 4, replayIndex: 0, status: "countdown" },
       ),
     ).toBe(false);
+  });
+});
+
+describe("paintFrameKey", () => {
+  it("stays stable at rest and changes with tick or blink", () => {
+    expect(paintFrameKey(3, 1, "", 100, 80)).toBe(
+      paintFrameKey(3, 1, "", 100, 80),
+    );
+    expect(paintFrameKey(3, 1, "", 100, 80)).not.toBe(
+      paintFrameKey(4, 1, "", 100, 80),
+    );
+    expect(paintFrameKey(3, 1, "0", 100, 80)).not.toBe(
+      paintFrameKey(3, 1, "1", 100, 80),
+    );
+    const cache = createCanvasPaintCache();
+    expect(shouldSkipPaint(cache, paintFrameKey(3, 1, "", 100, 80))).toBe(
+      false,
+    );
+    expect(shouldSkipPaint(cache, paintFrameKey(3, 1, "", 100, 80))).toBe(true);
   });
 });
 

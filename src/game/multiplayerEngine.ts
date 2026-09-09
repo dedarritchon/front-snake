@@ -22,6 +22,7 @@ export const MP_FIRE_COOLDOWN = 2;
 export const MP_TURBO_TICKS = Math.round(1000 / MP_TICK_MS);
 export const MP_BOMB_FUSE_TICKS = Math.round(3000 / MP_TICK_MS);
 export const MP_BLAST_TICKS = 3;
+export const MP_BLAST_RADIUS = 2;
 export const MP_ROUNDS = 10;
 export const MP_WIN_LENGTH = 20;
 export const MP_COUNTDOWN_MS = 1000;
@@ -398,11 +399,16 @@ interface MpWireSnake {
   roundWins?: number;
 }
 
+interface MpWirePacked {
+  o: string[];
+  p: number[];
+}
+
 interface MpWireSnapshot {
   snakes: MpWireSnake[];
   foods: number[];
-  shots: MpShot[];
-  bombs?: MpBomb[];
+  shots?: MpShot[] | MpWirePacked;
+  bombs?: MpBomb[] | MpWirePacked;
   blasts?: MpBlast[];
 }
 
@@ -419,12 +425,20 @@ export interface MpWireState {
   replayIndex?: number;
   snakes: MpWireSnake[];
   foods: number[];
-  shots?: MpShot[];
-  bombs?: MpBomb[];
+  shots?: MpShot[] | MpWirePacked;
+  bombs?: MpBomb[] | MpWirePacked;
   blasts?: MpBlast[];
   lastDeaths?: MpDeath[];
   replay?: MpWireSnapshot[];
 }
+
+const SHOT_DIR_CODE: Record<Direction, number> = {
+  up: 0,
+  right: 1,
+  down: 2,
+  left: 3,
+};
+const SHOT_DIR_FROM_CODE: Direction[] = ["up", "right", "down", "left"];
 
 function packPoints(points: Point[]): number[] {
   const packed = new Array<number>(points.length * 2);
@@ -470,6 +484,87 @@ function unpackPoints(value: unknown): Point[] | null {
     points.push({ x, y });
   }
   return points;
+}
+
+function packShots(shots: MpShot[]): MpWirePacked {
+  const o: string[] = [];
+  const p: number[] = [];
+  for (const shot of shots) {
+    o.push(shot.ownerId);
+    p.push(shot.x, shot.y, SHOT_DIR_CODE[shot.direction]);
+  }
+  return { o, p };
+}
+
+function unpackShots(value: unknown): MpShot[] {
+  if (value == null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    const shots: MpShot[] = [];
+    for (const item of value) {
+      if (typeof item !== "object" || item === null) {
+        continue;
+      }
+      const row = item as {
+        ownerId?: unknown;
+        x?: unknown;
+        y?: unknown;
+        direction?: unknown;
+      };
+      if (
+        typeof row.ownerId !== "string" ||
+        typeof row.x !== "number" ||
+        typeof row.y !== "number" ||
+        !isDirection(row.direction)
+      ) {
+        continue;
+      }
+      shots.push({
+        ownerId: row.ownerId,
+        x: row.x,
+        y: row.y,
+        direction: row.direction,
+      });
+    }
+    return shots;
+  }
+  if (typeof value !== "object") {
+    return [];
+  }
+  const row = value as { o?: unknown; p?: unknown };
+  if (!Array.isArray(row.o) || !Array.isArray(row.p)) {
+    return [];
+  }
+  const owners = row.o;
+  const data = row.p;
+  if (data.length !== owners.length * 3) {
+    return [];
+  }
+  const shots: MpShot[] = [];
+  for (let index = 0; index < owners.length; index += 1) {
+    const ownerId: unknown = owners[index];
+    const x: unknown = data[index * 3];
+    const y: unknown = data[index * 3 + 1];
+    const dirCode: unknown = data[index * 3 + 2];
+    if (
+      typeof ownerId !== "string" ||
+      typeof x !== "number" ||
+      typeof y !== "number"
+    ) {
+      continue;
+    }
+    if (dirCode !== 0 && dirCode !== 1 && dirCode !== 2 && dirCode !== 3) {
+      continue;
+    }
+    shots.push({
+      ownerId,
+      x,
+      y,
+      direction: SHOT_DIR_FROM_CODE[dirCode],
+    });
+  }
+  return shots;
 }
 
 function packSnake(snake: MpSnake): MpWireSnake {
@@ -570,34 +665,80 @@ function unpackSnake(value: unknown): MpSnake | null {
   };
 }
 
+function packBombs(bombs: MpBomb[]): MpWirePacked {
+  const o: string[] = [];
+  const p: number[] = [];
+  for (const bomb of bombs) {
+    o.push(bomb.ownerId);
+    p.push(bomb.x, bomb.y, bomb.fuse);
+  }
+  return { o, p };
+}
+
 function unpackBombs(value: unknown): MpBomb[] {
-  if (!Array.isArray(value)) {
+  if (value == null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    const bombs: MpBomb[] = [];
+    for (const item of value) {
+      if (typeof item !== "object" || item === null) {
+        continue;
+      }
+      const row = item as {
+        ownerId?: unknown;
+        x?: unknown;
+        y?: unknown;
+        fuse?: unknown;
+      };
+      if (
+        typeof row.ownerId !== "string" ||
+        typeof row.x !== "number" ||
+        typeof row.y !== "number" ||
+        typeof row.fuse !== "number"
+      ) {
+        continue;
+      }
+      bombs.push({
+        ownerId: row.ownerId,
+        x: row.x,
+        y: row.y,
+        fuse: Math.max(0, Math.floor(row.fuse)),
+      });
+    }
+    return bombs;
+  }
+  if (typeof value !== "object") {
+    return [];
+  }
+  const row = value as { o?: unknown; p?: unknown };
+  if (!Array.isArray(row.o) || !Array.isArray(row.p)) {
+    return [];
+  }
+  const owners = row.o;
+  const data = row.p;
+  if (data.length !== owners.length * 3) {
     return [];
   }
   const bombs: MpBomb[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) {
-      continue;
-    }
-    const row = item as {
-      ownerId?: unknown;
-      x?: unknown;
-      y?: unknown;
-      fuse?: unknown;
-    };
+  for (let index = 0; index < owners.length; index += 1) {
+    const ownerId: unknown = owners[index];
+    const x: unknown = data[index * 3];
+    const y: unknown = data[index * 3 + 1];
+    const fuse: unknown = data[index * 3 + 2];
     if (
-      typeof row.ownerId !== "string" ||
-      typeof row.x !== "number" ||
-      typeof row.y !== "number" ||
-      typeof row.fuse !== "number"
+      typeof ownerId !== "string" ||
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof fuse !== "number"
     ) {
       continue;
     }
     bombs.push({
-      ownerId: row.ownerId,
-      x: row.x,
-      y: row.y,
-      fuse: Math.max(0, Math.floor(row.fuse)),
+      ownerId,
+      x,
+      y,
+      fuse: Math.max(0, Math.floor(fuse)),
     });
   }
   return bombs;
@@ -633,10 +774,12 @@ function packSnapshot(snapshot: MpSnapshot): MpWireSnapshot {
   const packed: MpWireSnapshot = {
     snakes: snapshot.snakes.map(packSnake),
     foods: packPoints(snapshot.foods),
-    shots: snapshot.shots,
   };
+  if (snapshot.shots.length > 0) {
+    packed.shots = packShots(snapshot.shots);
+  }
   if (snapshot.bombs.length > 0) {
-    packed.bombs = snapshot.bombs;
+    packed.bombs = packBombs(snapshot.bombs);
   }
   if (snapshot.blasts.length > 0) {
     packed.blasts = snapshot.blasts;
@@ -650,7 +793,7 @@ function unpackSnapshot(value: unknown): MpSnapshot | null {
   }
   const row = value as Record<string, unknown>;
   const foods = unpackPoints(row.foods);
-  if (!Array.isArray(row.snakes) || !foods || !Array.isArray(row.shots)) {
+  if (!Array.isArray(row.snakes) || !foods) {
     return null;
   }
   const snakes: MpSnake[] = [];
@@ -664,7 +807,7 @@ function unpackSnapshot(value: unknown): MpSnapshot | null {
   return {
     snakes,
     foods,
-    shots: Array.isArray(row.shots) ? (row.shots as MpShot[]) : [],
+    shots: unpackShots(row.shots),
     bombs: unpackBombs(row.bombs),
     blasts: unpackBlasts(row.blasts),
   };
@@ -711,6 +854,63 @@ export function createPackedSnapshotRing(capacity = MP_REPLAY_FRAMES) {
       }
       return frames;
     },
+  };
+}
+
+export function acceptHostTick(
+  lastTick: number,
+  incoming: Pick<MpState, "tick" | "status">,
+  currentStatus: MpStatus | undefined,
+): boolean {
+  return incoming.status !== currentStatus || incoming.tick > lastTick;
+}
+
+export function applyHostSnapshot(
+  incoming: MpState,
+  local: MpState | null,
+  playerId: string,
+): MpState {
+  return retainReplay(keepLocalIntent(incoming, local, playerId), local);
+}
+
+export function shouldCoverLateHost(
+  ahead: boolean,
+  now: number,
+  lastHostAt: number,
+  tickMs: number,
+): boolean {
+  if (ahead || lastHostAt <= 0 || tickMs <= 0) {
+    return false;
+  }
+  return now - lastHostAt > tickMs;
+}
+
+export function advanceLocalSnake(state: MpState, playerId: string): MpState {
+  if (state.status !== "playing") {
+    return state;
+  }
+  const mine = state.snakes.find((snake) => snake.id === playerId);
+  if (!mine?.alive || mine.body.length === 0) {
+    return state;
+  }
+  const dir =
+    OPPOSITE[mine.direction] === mine.pending ? mine.direction : mine.pending;
+  const delta = DIRECTION_DELTA[dir];
+  const nextHead = {
+    x: mine.body[0].x + delta.x,
+    y: mine.body[0].y + delta.y,
+  };
+  const head = mine.turboLeft > 0 ? wrapCell(nextHead) : nextHead;
+  if (mine.turboLeft <= 0 && !inBounds(head)) {
+    return state;
+  }
+  const body = [head, ...mine.body.slice(0, -1)];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    snakes: state.snakes.map((snake) =>
+      snake.id === playerId ? { ...snake, body, direction: dir } : snake,
+    ),
   };
 }
 
@@ -768,10 +968,10 @@ export function toWireState(
     wire.replayIndex = state.replayIndex;
   }
   if (state.shots.length > 0) {
-    wire.shots = state.shots;
+    wire.shots = packShots(state.shots);
   }
   if (state.bombs.length > 0) {
-    wire.bombs = state.bombs;
+    wire.bombs = packBombs(state.bombs);
   }
   if (state.blasts.length > 0) {
     wire.blasts = state.blasts;
@@ -826,7 +1026,7 @@ export function fromWireState(payload: unknown): MpState | null {
       replay.push(snapshot);
     }
   }
-  const shots = Array.isArray(row.shots) ? (row.shots as MpShot[]) : [];
+  const shots = unpackShots(row.shots);
   const bombs = unpackBombs(row.bombs);
   const blasts = unpackBlasts(row.blasts);
   const lastDeaths = Array.isArray(row.lastDeaths)
@@ -984,9 +1184,7 @@ export function describeDeaths(deaths: MpDeath[], snakes: MpSnake[]): string {
     }
     if (death.cause === "bomb") {
       if (death.otherId && death.otherId !== death.playerId) {
-        lines.push(
-          `${nameOf(death.otherId)} bombed ${nameOf(death.playerId)}`,
-        );
+        lines.push(`${nameOf(death.otherId)} bombed ${nameOf(death.playerId)}`);
       } else {
         lines.push(`${nameOf(death.playerId)} blew up`);
       }
@@ -1160,6 +1358,30 @@ function deadQueues(): Pick<
   };
 }
 
+function mapAliveSnake(
+  state: MpState,
+  playerId: string,
+  update: (snake: MpSnake) => MpSnake,
+): MpState {
+  const snakes = state.snakes.slice();
+  let changed = false;
+  for (let index = 0; index < snakes.length; index += 1) {
+    const snake = snakes[index];
+    if (snake.id !== playerId || !snake.alive) {
+      continue;
+    }
+    const next = update(snake);
+    if (next !== snake) {
+      snakes[index] = next;
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return state;
+  }
+  return { ...state, snakes };
+}
+
 export function queueMpInput(
   state: MpState,
   playerId: string,
@@ -1168,78 +1390,54 @@ export function queueMpInput(
   if (state.status !== "playing" && state.status !== "countdown") {
     return state;
   }
-  return {
-    ...state,
-    snakes: state.snakes.map((snake) => {
-      if (snake.id !== playerId || !snake.alive) {
-        return snake;
-      }
-      if (OPPOSITE[snake.direction] === next) {
-        return snake;
-      }
-      return { ...snake, pending: next };
-    }),
-  };
+  return mapAliveSnake(state, playerId, (snake) => {
+    if (OPPOSITE[snake.direction] === next || snake.pending === next) {
+      return snake;
+    }
+    return { ...snake, pending: next };
+  });
 }
 
 export function queueMpFire(state: MpState, playerId: string): MpState {
   if (state.status !== "playing") {
     return state;
   }
-  return {
-    ...state,
-    snakes: state.snakes.map((snake) => {
-      if (snake.id !== playerId || !snake.alive) {
-        return snake;
-      }
-      const affordable = Math.floor(snake.power / MP_POWER_COST);
-      if (queuedSpendSlots(snake) >= affordable) {
-        return snake;
-      }
-      return { ...snake, queuedFires: snake.queuedFires + 1 };
-    }),
-  };
+  return mapAliveSnake(state, playerId, (snake) => {
+    const affordable = Math.floor(snake.power / MP_POWER_COST);
+    if (queuedSpendSlots(snake) >= affordable) {
+      return snake;
+    }
+    return { ...snake, queuedFires: snake.queuedFires + 1 };
+  });
 }
 
 export function queueMpTurbo(state: MpState, playerId: string): MpState {
   if (state.status !== "playing") {
     return state;
   }
-  return {
-    ...state,
-    snakes: state.snakes.map((snake) => {
-      if (snake.id !== playerId || !snake.alive) {
-        return snake;
-      }
-      if (snake.turboLeft > 0 || snake.queuedTurbo > 0) {
-        return snake;
-      }
-      const affordable = Math.floor(snake.power / MP_POWER_COST);
-      if (queuedSpendSlots(snake) >= affordable) {
-        return snake;
-      }
-      return { ...snake, queuedTurbo: 1 };
-    }),
-  };
+  return mapAliveSnake(state, playerId, (snake) => {
+    if (snake.turboLeft > 0 || snake.queuedTurbo > 0) {
+      return snake;
+    }
+    const affordable = Math.floor(snake.power / MP_POWER_COST);
+    if (queuedSpendSlots(snake) >= affordable) {
+      return snake;
+    }
+    return { ...snake, queuedTurbo: 1 };
+  });
 }
 
 export function queueMpBomb(state: MpState, playerId: string): MpState {
   if (state.status !== "playing") {
     return state;
   }
-  return {
-    ...state,
-    snakes: state.snakes.map((snake) => {
-      if (snake.id !== playerId || !snake.alive) {
-        return snake;
-      }
-      const affordable = Math.floor(snake.power / MP_POWER_COST);
-      if (queuedSpendSlots(snake) >= affordable) {
-        return snake;
-      }
-      return { ...snake, queuedBombs: snake.queuedBombs + 1 };
-    }),
-  };
+  return mapAliveSnake(state, playerId, (snake) => {
+    const affordable = Math.floor(snake.power / MP_POWER_COST);
+    if (queuedSpendSlots(snake) >= affordable) {
+      return snake;
+    }
+    return { ...snake, queuedBombs: snake.queuedBombs + 1 };
+  });
 }
 
 export function killPlayer(state: MpState, playerId: string): MpState {
@@ -1769,7 +1967,11 @@ function tickBombs(
       if (!snake.alive || dying.has(snake.id)) {
         continue;
       }
-      if (snake.body.some((segment) => chebyshev(segment, bomb) <= 1)) {
+      if (
+        snake.body.some(
+          (segment) => chebyshev(segment, bomb) <= MP_BLAST_RADIUS,
+        )
+      ) {
         dying.add(snake.id);
         rememberDeath(deaths, snake.id, "bomb", bomb.ownerId);
       }
@@ -1782,9 +1984,7 @@ function tickBombs(
     bombs: nextBombs,
     blasts,
     snakes: snakes.map((snake) =>
-      dying.has(snake.id)
-        ? { ...snake, alive: false, ...deadQueues() }
-        : snake,
+      dying.has(snake.id) ? { ...snake, alive: false, ...deadQueues() } : snake,
     ),
   };
 }
@@ -2089,7 +2289,10 @@ export function tickMp(state: MpState): MpState {
     .filter((blast) => blast.life > 0);
   const lastDeaths =
     deathMap.size > 0 ? [...deathMap.values()] : state.lastDeaths;
-  const maxScore = Math.max(0, ...afterBombs.snakes.map((snake) => snake.score));
+  const maxScore = Math.max(
+    0,
+    ...afterBombs.snakes.map((snake) => snake.score),
+  );
   const nextFoods =
     boosted.foods.length >= baitCountForScore(maxScore)
       ? boosted.foods

@@ -111,32 +111,44 @@ export function VersusSession({
       }
       if (direction) {
         event.preventDefault();
-        sendDirection(direction);
+        if (!event.repeat) {
+          sendDirection(direction);
+        }
         return;
       }
       if (event.key === "Shift") {
         event.preventDefault();
-        sendTurbo();
+        if (!event.repeat) {
+          sendTurbo();
+        }
         return;
       }
       if (event.code === "Space" || key === " ") {
         event.preventDefault();
-        sendFire();
+        if (!event.repeat) {
+          sendFire();
+        }
         return;
       }
       if (key === "b") {
         event.preventDefault();
-        sendBomb();
+        if (!event.repeat) {
+          sendBomb();
+        }
         return;
       }
       if (key === "m") {
         event.preventDefault();
-        toggleMute();
+        if (!event.repeat) {
+          toggleMute();
+        }
         return;
       }
       if (key === "enter") {
         event.preventDefault();
-        toggleReady();
+        if (!event.repeat) {
+          toggleReady();
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);

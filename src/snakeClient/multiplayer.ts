@@ -17,7 +17,7 @@ import {
 } from "../game/snakeColors";
 import type { Direction } from "../game/types";
 import { snakeSupabase } from "./supabase";
-import { createByteRate, payloadBytes } from "./throughput";
+import { createByteRate, payloadBytes, payloadJson } from "./throughput";
 
 export const PRESENCE_GRACE_MS = 4000;
 
@@ -270,7 +270,7 @@ export class MultiplayerRoom {
     this.sendingState = true;
     const payload = this.pendingState;
     this.pendingState = null;
-    this.recordTraffic(payload);
+    this.recordTraffic(payloadJson(payload));
     const sent = this.channel.send({
       type: "broadcast",
       event: "state",
@@ -285,7 +285,7 @@ export class MultiplayerRoom {
   }
 
   private sendBroadcast(event: string, payload: unknown): void {
-    this.recordTraffic(payload);
+    this.recordTraffic(payloadJson(payload));
     void this.channel?.send({
       type: "broadcast",
       event,
@@ -293,8 +293,8 @@ export class MultiplayerRoom {
     });
   }
 
-  private recordTraffic(payload: unknown): void {
-    this.traffic.record(payloadBytes(payload));
+  private recordTraffic(encoded: string): void {
+    this.traffic.record(payloadBytes(encoded));
   }
 
   async disconnect(): Promise<void> {
@@ -421,7 +421,7 @@ export class MultiplayerRoom {
         }
         const state = fromWireState(payload);
         if (state) {
-          this.recordTraffic(payload);
+          this.recordTraffic(payloadJson(payload));
           this.handlers.onState(state);
         }
       })
@@ -433,7 +433,7 @@ export class MultiplayerRoom {
         if (!input) {
           return;
         }
-        this.recordTraffic(payload);
+        this.recordTraffic(payloadJson(payload));
         this.handlers.onInput(input);
       })
       .on("broadcast", { event: "start" }, ({ payload }) => {

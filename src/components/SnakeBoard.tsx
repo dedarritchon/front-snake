@@ -8,8 +8,10 @@ import {
   createCanvasPaintCache,
   LCD,
   lerpAmount,
+  paintFrameKey,
   paintGrid,
   setCanvasCssSize,
+  shouldSkipPaint,
 } from "../game/paintBoard";
 import {
   blockedCells,
@@ -378,7 +380,10 @@ export function SnakeBoard({
       const cols = live.gridWidth;
       const rows = live.gridHeight;
       if (busyRef.current) {
-        paintGrid(canvas, cache, cols, rows, [], []);
+        const key = paintFrameKey(0, 1, "busy", cache.cssW, cache.cssH);
+        if (!shouldSkipPaint(cache, key)) {
+          paintGrid(canvas, cache, cols, rows, [], []);
+        }
         frame = window.requestAnimationFrame(loop);
         return;
       }
@@ -399,7 +404,22 @@ export function SnakeBoard({
           alive: true,
           style: "logo" as const,
         };
-        paintGrid(canvas, cache, cols, rows, [...ambients, logoSnake], [bait]);
+        let heads = "";
+        for (const ambient of ambients) {
+          const head = ambient.body[0];
+          heads += `${head.x},${head.y};`;
+        }
+        const key = paintFrameKey(0, 1, heads, cache.cssW, cache.cssH);
+        if (!shouldSkipPaint(cache, key)) {
+          paintGrid(
+            canvas,
+            cache,
+            cols,
+            rows,
+            [...ambients, logoSnake],
+            [bait],
+          );
+        }
         frame = window.requestAnimationFrame(loop);
         return;
       }
@@ -412,37 +432,47 @@ export function SnakeBoard({
         now,
         prevFrame === null,
       );
-      paintGrid(
-        canvas,
-        cache,
-        cols,
-        rows,
-        [
-          {
-            id: "you",
-            color: colorRef.current,
-            body: live.snake,
-            alive: true,
-          },
-        ],
-        live.foods,
-        [],
-        prevFrame
-          ? {
-              snakes: [
-                {
-                  id: "you",
-                  color: colorRef.current,
-                  body: prevFrame.snake,
-                  alive: true,
-                },
-              ],
-              foods: prevFrame.foods,
-            }
-          : null,
+      const head = live.snake[0];
+      const key = paintFrameKey(
+        live.score,
         t,
-        { tick: Math.floor(now / BASE_TICK_MS) },
+        `${live.status}:${head.x},${head.y}:${live.snake.length}`,
+        cache.cssW,
+        cache.cssH,
       );
+      if (!shouldSkipPaint(cache, key)) {
+        paintGrid(
+          canvas,
+          cache,
+          cols,
+          rows,
+          [
+            {
+              id: "you",
+              color: colorRef.current,
+              body: live.snake,
+              alive: true,
+            },
+          ],
+          live.foods,
+          [],
+          prevFrame
+            ? {
+                snakes: [
+                  {
+                    id: "you",
+                    color: colorRef.current,
+                    body: prevFrame.snake,
+                    alive: true,
+                  },
+                ],
+                foods: prevFrame.foods,
+              }
+            : null,
+          t,
+          { tick: Math.floor(lastTickAtRef.current / BASE_TICK_MS) },
+        );
+      }
       frame = window.requestAnimationFrame(loop);
     };
     frame = window.requestAnimationFrame(loop);

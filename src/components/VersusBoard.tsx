@@ -4,6 +4,7 @@ import { styled } from "styled-components";
 import {
   describeDeaths,
   hasSlowMoClip,
+  MP_BLAST_RADIUS,
   MP_BLAST_TICKS,
   MP_BOMB_FUSE_TICKS,
   MP_GRID_HEIGHT,
@@ -26,9 +27,12 @@ import {
   createCanvasPaintCache,
   LCD,
   lerpAmount,
+  paintBlinkKey,
+  paintFrameKey,
   paintGrid,
   setCanvasCssSize,
   shouldLerpMp,
+  shouldSkipPaint,
 } from "../game/paintBoard";
 import { snakeSwatch } from "../game/snakeColors";
 import type { Point } from "../game/types";
@@ -531,8 +535,19 @@ export function VersusBoard({
       const hud = hudRef.current;
       const live = liveRef.current ?? hud;
       const statusNow = live?.status ?? hud?.status ?? "lobby";
+      const netEl = netRef.current;
+      const readNet = getNetBpsRef.current;
+      if (netEl && readNet) {
+        const label = formatMbps(readNet());
+        if (netEl.textContent !== label) {
+          netEl.textContent = label;
+        }
+      }
       if (statusNow === "lobby" || !live) {
-        clearBoard(canvas, cache);
+        const key = paintFrameKey(0, 1, "lobby", cache.cssW, cache.cssH);
+        if (!shouldSkipPaint(cache, key)) {
+          clearBoard(canvas, cache);
+        }
         frame = window.requestAnimationFrame(loop);
         return;
       }
@@ -550,36 +565,52 @@ export function VersusBoard({
       const prev = viewing ? null : prevLiveRef.current;
       const lerp = !viewing && prev ? shouldLerpMp(prev, live) : false;
       const t = lerpAmount(lastTickAtRef.current, mpTickMs(live), now, !lerp);
-      paintGrid(
-        canvas,
-        cache,
-        live.gridWidth,
-        live.gridHeight,
-        currSnakes,
-        currFoods,
-        currShots,
-        lerp && prev
-          ? { snakes: prev.snakes, foods: prev.foods, shots: prev.shots }
-          : null,
-        t,
-        {
-          tick: live.tick,
-          bombs: currBombs,
-          blasts: currBlasts,
-          now,
-          lastTickAt: lastTickAtRef.current,
-          tickMs: mpTickMs(live),
-          fuseTicks: MP_BOMB_FUSE_TICKS,
-          blastTicks: MP_BLAST_TICKS,
-        },
+      const blink = paintBlinkKey(
+        currBombs,
+        currBlasts,
+        MP_BOMB_FUSE_TICKS,
+        mpTickMs(live),
+        lastTickAtRef.current,
+        now,
+        MP_BLAST_TICKS,
       );
-      const netEl = netRef.current;
-      const readNet = getNetBpsRef.current;
-      if (netEl && readNet) {
-        const label = formatMbps(readNet());
-        if (netEl.textContent !== label) {
-          netEl.textContent = label;
-        }
+      let bodies = live.status;
+      for (const snake of currSnakes) {
+        const head = snake.body[0];
+        bodies += `:${snake.alive ? 1 : 0}:${head.x},${head.y}:${snake.body.length}`;
+      }
+      const key = paintFrameKey(
+        live.tick,
+        t,
+        `${blink}:${bodies}`,
+        cache.cssW,
+        cache.cssH,
+      );
+      if (!shouldSkipPaint(cache, key)) {
+        paintGrid(
+          canvas,
+          cache,
+          live.gridWidth,
+          live.gridHeight,
+          currSnakes,
+          currFoods,
+          currShots,
+          lerp && prev
+            ? { snakes: prev.snakes, foods: prev.foods, shots: prev.shots }
+            : null,
+          t,
+          {
+            tick: live.tick,
+            bombs: currBombs,
+            blasts: currBlasts,
+            now,
+            lastTickAt: lastTickAtRef.current,
+            tickMs: mpTickMs(live),
+            fuseTicks: MP_BOMB_FUSE_TICKS,
+            blastTicks: MP_BLAST_TICKS,
+            blastRadius: MP_BLAST_RADIUS,
+          },
+        );
       }
       frame = window.requestAnimationFrame(loop);
     };

@@ -1,3 +1,4 @@
+import { MP_BLAST_RADIUS } from "./multiplayerEngine";
 import { snakeSegmentColor } from "./snakeColors";
 import type { Point } from "./types";
 
@@ -15,6 +16,10 @@ export interface CanvasPaintCache {
   dpr: number;
   pixelW: number;
   pixelH: number;
+  lerpScratch: Point[];
+  prevById: Map<string, PaintSnake>;
+  shotColors: Map<string, string>;
+  paintKey: string;
 }
 
 export interface PaintSnake {
@@ -54,10 +59,72 @@ export interface PaintGridExtras {
   tickMs?: number;
   fuseTicks?: number;
   blastTicks?: number;
+  blastRadius?: number;
 }
 
 export function createCanvasPaintCache(): CanvasPaintCache {
-  return { ctx: null, cssW: 0, cssH: 0, dpr: 0, pixelW: 0, pixelH: 0 };
+  return {
+    ctx: null,
+    cssW: 0,
+    cssH: 0,
+    dpr: 0,
+    pixelW: 0,
+    pixelH: 0,
+    lerpScratch: [],
+    prevById: new Map(),
+    shotColors: new Map(),
+    paintKey: "",
+  };
+}
+
+export function paintFrameKey(
+  tick: number,
+  t: number,
+  blink: string,
+  width: number,
+  height: number,
+): string {
+  return `${tick}:${Math.round(t * 64)}:${blink}:${Math.round(width)}x${Math.round(height)}`;
+}
+
+export function paintBlinkKey(
+  bombs: PaintBomb[] | undefined,
+  blasts: PaintBlast[] | undefined,
+  fuseTicks: number,
+  tickMs: number,
+  lastTickAt: number,
+  now: number,
+  blastTicks: number,
+): string {
+  if ((!bombs || bombs.length === 0) && (!blasts || blasts.length === 0)) {
+    return "";
+  }
+  let key = "";
+  if (bombs) {
+    for (const bomb of bombs) {
+      key += bombBlinkOn(bomb.fuse, fuseTicks, tickMs, lastTickAt, now)
+        ? "1"
+        : "0";
+    }
+  }
+  if (blasts) {
+    for (const blast of blasts) {
+      const elapsed = Math.max(
+        0,
+        (blastTicks - blast.life) * tickMs + (now - lastTickAt),
+      );
+      key += `${blast.life}${Math.floor(elapsed / 70) % 2 === 0 ? "1" : "0"}`;
+    }
+  }
+  return key;
+}
+
+export function shouldSkipPaint(cache: CanvasPaintCache, key: string): boolean {
+  if (cache.paintKey === key) {
+    return true;
+  }
+  cache.paintKey = key;
+  return false;
 }
 
 export function setCanvasCssSize(
@@ -119,13 +186,14 @@ function wrapCoord(value: number, size: number): number {
   return ((value % size) + size) % size;
 }
 
-function lerpAxis(
+function lerpInto(
+  target: Point,
   from: Point,
   to: Point,
   t: number,
   cols: number,
   rows: number,
-): Point {
+): void {
   const dx = wrapDelta(from.x, to.x, cols);
   const dy = wrapDelta(from.y, to.y, rows);
   if (dx !== 0 && dy !== 0) {
@@ -133,20 +201,16 @@ function lerpAxis(
     const ay = Math.abs(dy);
     const dist = t * (ax + ay);
     if (dist <= ax) {
-      return {
-        x: wrapCoord(from.x + Math.sign(dx) * dist, cols),
-        y: wrapCoord(from.y, rows),
-      };
+      target.x = wrapCoord(from.x + Math.sign(dx) * dist, cols);
+      target.y = wrapCoord(from.y, rows);
+      return;
     }
-    return {
-      x: wrapCoord(from.x + dx, cols),
-      y: wrapCoord(from.y + Math.sign(dy) * (dist - ax), rows),
-    };
+    target.x = wrapCoord(from.x + dx, cols);
+    target.y = wrapCoord(from.y + Math.sign(dy) * (dist - ax), rows);
+    return;
   }
-  return {
-    x: wrapCoord(from.x + dx * t, cols),
-    y: wrapCoord(from.y + dy * t, rows),
-  };
+  target.x = wrapCoord(from.x + dx * t, cols);
+  target.y = wrapCoord(from.y + dy * t, rows);
 }
 
 export function lerpBodies(
@@ -155,6 +219,7 @@ export function lerpBodies(
   t: number,
   cols = 0,
   rows = 0,
+  out?: Point[],
 ): Point[] {
   if (!prev || t >= 1) {
     return curr;
@@ -166,14 +231,21 @@ export function lerpBodies(
     return curr;
   }
   const shared = Math.min(prev.length, curr.length);
-  const out: Point[] = [];
+  const target = out ?? [];
+  while (target.length < curr.length) {
+    target.push({ x: 0, y: 0 });
+  }
+  if (target.length > curr.length) {
+    target.length = curr.length;
+  }
   for (let i = 0; i < shared; i += 1) {
-    out.push(lerpAxis(prev[i], curr[i], t, cols, rows));
+    lerpInto(target[i], prev[i], curr[i], t, cols, rows);
   }
   for (let i = shared; i < curr.length; i += 1) {
-    out.push(curr[i]);
+    target[i].x = curr[i].x;
+    target[i].y = curr[i].y;
   }
-  return out;
+  return target;
 }
 
 function lerpShots(
@@ -435,11 +507,39 @@ function paintOneSnake(
       cols,
       rows,
     );
-    for (const shift of torusShifts(segment.x, segment.y, cols, rows)) {
+    fillSegment(
+      ctx,
+      segment.x * cellW + padX,
+      segment.y * cellH + padY,
+      sizeW,
+      sizeH,
+      radii,
+    );
+    if (cols > 0 && segment.x + 1 > cols) {
       fillSegment(
         ctx,
-        (segment.x + shift.x) * cellW + padX,
-        (segment.y + shift.y) * cellH + padY,
+        (segment.x - cols) * cellW + padX,
+        segment.y * cellH + padY,
+        sizeW,
+        sizeH,
+        radii,
+      );
+    }
+    if (rows > 0 && segment.y + 1 > rows) {
+      fillSegment(
+        ctx,
+        segment.x * cellW + padX,
+        (segment.y - rows) * cellH + padY,
+        sizeW,
+        sizeH,
+        radii,
+      );
+    }
+    if (cols > 0 && rows > 0 && segment.x + 1 > cols && segment.y + 1 > rows) {
+      fillSegment(
+        ctx,
+        (segment.x - cols) * cellW + padX,
+        (segment.y - rows) * cellH + padY,
         sizeW,
         sizeH,
         radii,
@@ -549,6 +649,7 @@ function paintBlast(
   tickMs: number,
   lastTickAt: number,
   now: number,
+  radius: number,
 ): void {
   const elapsed = Math.max(
     0,
@@ -557,8 +658,8 @@ function paintBlast(
   const duration = Math.max(1, blastTicks * tickMs);
   const progress = Math.min(1, elapsed / duration);
   const flashOn = Math.floor(elapsed / 70) % 2 === 0;
-  for (let dy = -1; dy <= 1; dy += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
       const x = blast.x + dx;
       const y = blast.y + dy;
       if (x < 0 || y < 0 || x >= cols || y >= rows) {
@@ -608,7 +709,8 @@ export function paintGrid(
   const cellW = width / cols;
   const cellH = height / rows;
   const tick = extras?.tick ?? 0;
-  const prevById = new Map<string, PaintSnake>();
+  const prevById = cache.prevById;
+  prevById.clear();
   if (prev?.snakes && t < 1) {
     for (const snake of prev.snakes) {
       if (snake.id) {
@@ -619,7 +721,14 @@ export function paintGrid(
 
   const draw = (snake: PaintSnake) => {
     const from = snake.id ? prevById.get(snake.id) : undefined;
-    const body = lerpBodies(from?.body, snake.body, t, cols, rows);
+    const body = lerpBodies(
+      from?.body,
+      snake.body,
+      t,
+      cols,
+      rows,
+      cache.lerpScratch,
+    );
     paintOneSnake(ctx, snake, body, cellW, cellH, tick, cols, rows);
   };
 
@@ -651,7 +760,8 @@ export function paintGrid(
     paintFood(ctx, food, cellW, cellH);
   }
 
-  const colors = new Map<string, string>();
+  const colors = cache.shotColors;
+  colors.clear();
   for (const snake of snakes) {
     if (snake.id) {
       colors.set(
@@ -698,6 +808,7 @@ export function paintGrid(
     );
   }
   const blastTicks = extras?.blastTicks ?? 1;
+  const blastRadius = extras?.blastRadius ?? MP_BLAST_RADIUS;
   for (const blast of blasts) {
     paintBlast(
       ctx,
@@ -710,6 +821,7 @@ export function paintGrid(
       tickMs,
       lastTickAt,
       now,
+      blastRadius,
     );
   }
 }
@@ -736,10 +848,12 @@ export function shouldLerpMp(
     return false;
   }
   if (next.status === "playing") {
-    return next.tick - prev.tick === 1;
+    const gap = next.tick - prev.tick;
+    return gap >= 1 && gap <= 3;
   }
   if (next.status === "replay") {
-    return next.replayIndex - prev.replayIndex === 1;
+    const gap = next.replayIndex - prev.replayIndex;
+    return gap >= 1 && gap <= 3;
   }
   return false;
 }

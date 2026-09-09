@@ -4,15 +4,17 @@ import { snakeAudio } from "../audio/snakeAudio";
 import { isDirection, randomSeed } from "../game/engine";
 import { mpHudKey } from "../game/hudState";
 import {
+  acceptHostTick,
   advanceCountdown,
+  advanceLocalSnake,
   advanceReplay,
   allReadyToStart,
+  applyHostSnapshot,
   beginReplay,
   beginRound,
   createMpLobby,
   createPackedSnapshotRing,
   createPlayerId,
-  keepLocalIntent,
   killPlayer,
   markHostLeft,
   MP_COUNTDOWN_MS,
@@ -26,7 +28,7 @@ import {
   queueMpFire,
   queueMpInput,
   queueMpTurbo,
-  retainReplay,
+  shouldCoverLateHost,
   shouldPersonalSlowMo,
   shouldSlowMo,
   snapshotMp,
@@ -78,6 +80,7 @@ export function useMultiplayerRoom(
   const localReplayRef = useRef(false);
   const lastHostAtRef = useRef(0);
   const lastHostTickRef = useRef(-1);
+  const aheadRef = useRef(false);
   const [personalReplay, setPersonalReplay] = useState<{
     frames: MpSnapshot[];
     index: number;
@@ -87,7 +90,12 @@ export function useMultiplayerRoom(
   const commitState = useCallback(
     (
       next: MpState,
-      options?: { send?: boolean; forceHud?: boolean; resync?: boolean },
+      options?: {
+        send?: boolean;
+        forceHud?: boolean;
+        resync?: boolean;
+        predict?: boolean;
+      },
     ) => {
       const previous = stateRef.current;
       if (previous && shouldLerpMp(previous, next)) {
@@ -117,7 +125,7 @@ export function useMultiplayerRoom(
           deaths: next.lastDeaths.filter((death) => death.playerId === me),
         });
       }
-      if (next.status === "playing") {
+      if (next.status === "playing" && options?.predict !== true) {
         if (previous?.status !== "playing" || previous.tick !== next.tick) {
           historyRef.current.push(next);
         }
@@ -315,18 +323,29 @@ export function useMultiplayerRoom(
           }
           localReplayRef.current = false;
           const current = stateRef.current;
-          if (
-            next.status === current?.status &&
-            next.tick <= lastHostTickRef.current
-          ) {
+          if (!acceptHostTick(lastHostTickRef.current, next, current?.status)) {
             return;
           }
           lastHostTickRef.current = next.tick;
           lastHostAtRef.current = performance.now();
-          const applied = retainReplay(
-            keepLocalIntent(next, current, identity.playerId),
-            current,
-          );
+          aheadRef.current = false;
+          const applied = applyHostSnapshot(next, current, identity.playerId);
+          if (current?.status === "playing" && applied.status === "playing") {
+            if (
+              applied.snakes.some(
+                (snake, index) => snake.score > current.snakes[index].score,
+              )
+            ) {
+              snakeAudio.playEat();
+            }
+            if (
+              applied.snakes.some(
+                (snake, index) => current.snakes[index].alive && !snake.alive,
+              )
+            ) {
+              snakeAudio.playDie();
+            }
+          }
           commitState(applied);
           if (next.status === "playing" || next.status === "countdown") {
             clearReadyRef.current();
@@ -382,6 +401,7 @@ export function useMultiplayerRoom(
     personalReplayRef.current = false;
     lastHostAtRef.current = 0;
     lastHostTickRef.current = -1;
+    aheadRef.current = false;
     sentOverReplayRef.current = false;
     setPersonalReplay(null);
   }, [roomId]);
@@ -436,12 +456,43 @@ export function useMultiplayerRoom(
   }, [isHost, publish, state?.status]);
 
   useEffect(() => {
+    if (isHost || state?.status !== "playing") {
+      return;
+    }
+    let frame = 0;
+    const step = () => {
+      const current = stateRef.current;
+      if (current?.status === "playing") {
+        const now = performance.now();
+        if (
+          shouldCoverLateHost(
+            aheadRef.current,
+            now,
+            lastHostAtRef.current,
+            mpTickMs(current),
+          )
+        ) {
+          const next = advanceLocalSnake(current, identityRef.current.playerId);
+          if (next !== current) {
+            aheadRef.current = true;
+            commitState(next, { predict: true });
+          }
+        }
+      }
+      frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [commitState, isHost, state?.status]);
+
+  useEffect(() => {
     const playing = state?.status === "playing";
     const replaying = state?.status === "replay";
     const hostLive = isHost && (playing || replaying);
-    const guestLive = !isHost && playing;
     const localClip = replaying && localReplayRef.current;
-    if (!hostLive && !guestLive && !localClip) {
+    if (!hostLive && !localClip) {
       return;
     }
     let last = performance.now();
@@ -551,31 +602,15 @@ export function useMultiplayerRoom(
     if (!current) {
       return;
     }
-    if (isHostRef.current) {
-      const next = queueMpInput(
-        current,
-        identityRef.current.playerId,
-        direction,
-      );
-      const changed = next.snakes.some(
-        (snake, index) => snake.pending !== current.snakes[index].pending,
-      );
-      if (changed) {
-        snakeAudio.playMove(direction);
-      }
-      stateRef.current = next;
-      return;
-    }
-    if (current.status !== "playing" && current.status !== "countdown") {
+    const next = queueMpInput(current, identityRef.current.playerId, direction);
+    if (next === current) {
       return;
     }
     snakeAudio.playMove(direction);
-    stateRef.current = queueMpInput(
-      current,
-      identityRef.current.playerId,
-      direction,
-    );
-    roomRef.current?.sendInput(direction);
+    stateRef.current = next;
+    if (!isHostRef.current) {
+      roomRef.current?.sendInput(direction);
+    }
   }, []);
 
   const sendFire = useCallback(() => {
@@ -584,15 +619,14 @@ export function useMultiplayerRoom(
     if (!current) {
       return;
     }
-    if (isHostRef.current) {
-      stateRef.current = queueMpFire(current, identityRef.current.playerId);
+    const next = queueMpFire(current, identityRef.current.playerId);
+    if (next === current) {
       return;
     }
-    if (current.status !== "playing") {
-      return;
+    stateRef.current = next;
+    if (!isHostRef.current) {
+      roomRef.current?.sendFire();
     }
-    stateRef.current = queueMpFire(current, identityRef.current.playerId);
-    roomRef.current?.sendFire();
   }, []);
 
   const sendTurbo = useCallback(() => {
@@ -601,15 +635,14 @@ export function useMultiplayerRoom(
     if (!current) {
       return;
     }
-    if (isHostRef.current) {
-      stateRef.current = queueMpTurbo(current, identityRef.current.playerId);
+    const next = queueMpTurbo(current, identityRef.current.playerId);
+    if (next === current) {
       return;
     }
-    if (current.status !== "playing") {
-      return;
+    stateRef.current = next;
+    if (!isHostRef.current) {
+      roomRef.current?.sendTurbo();
     }
-    stateRef.current = queueMpTurbo(current, identityRef.current.playerId);
-    roomRef.current?.sendTurbo();
   }, []);
 
   const sendBomb = useCallback(() => {
@@ -618,15 +651,14 @@ export function useMultiplayerRoom(
     if (!current) {
       return;
     }
-    if (isHostRef.current) {
-      stateRef.current = queueMpBomb(current, identityRef.current.playerId);
+    const next = queueMpBomb(current, identityRef.current.playerId);
+    if (next === current) {
       return;
     }
-    if (current.status !== "playing") {
-      return;
+    stateRef.current = next;
+    if (!isHostRef.current) {
+      roomRef.current?.sendBomb();
     }
-    stateRef.current = queueMpBomb(current, identityRef.current.playerId);
-    roomRef.current?.sendBomb();
   }, []);
 
   const toggleReady = useCallback(() => {

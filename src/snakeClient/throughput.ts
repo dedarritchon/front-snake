@@ -1,11 +1,25 @@
 const WINDOW_MS = 1000;
 
-export function payloadBytes(payload: unknown): number {
+export function payloadJson(payload: unknown): string {
   try {
-    return JSON.stringify(payload).length;
+    return JSON.stringify(payload);
   } catch {
+    return "";
+  }
+}
+
+export function payloadBytes(payload: unknown): number {
+  if (typeof payload === "string") {
+    return payload.length;
+  }
+  return payloadJson(payload).length;
+}
+
+export function wireBitsPerSec(bytes: number, tickMs: number): number {
+  if (bytes <= 0 || tickMs <= 0) {
     return 0;
   }
+  return (bytes * 8 * 1000) / tickMs;
 }
 
 export function formatMbps(bitsPerSec: number): string {
