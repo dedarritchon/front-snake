@@ -1,13 +1,12 @@
 import { type RefObject, useEffect, useMemo, useRef } from "react";
 import { styled } from "styled-components";
 
-import { BASE_TICK_MS, gameLevel, tickMsForScore } from "../game/engine";
+import { BASE_TICK_MS, gameLevel } from "../game/engine";
 import { frontLogoBait, frontLogoCells } from "../game/logo";
 import {
   bindCanvas,
   createCanvasPaintCache,
   LCD,
-  lerpAmount,
   paintGrid,
   setCanvasCssSize,
 } from "../game/paintBoard";
@@ -316,7 +315,6 @@ function useTitleSnakes(
 export function SnakeBoard({
   state,
   liveRef,
-  prevLiveRef,
   lastTickAtRef,
   playerLabel,
   guest,
@@ -403,15 +401,6 @@ export function SnakeBoard({
         frame = window.requestAnimationFrame(loop);
         return;
       }
-      const prev = prevLiveRef.current;
-      const prevFrame =
-        live.status === "playing" && prev?.status === "playing" ? prev : null;
-      const t = lerpAmount(
-        lastTickAtRef.current,
-        tickMsForScore(live.score, live.snake.length),
-        now,
-        prevFrame === null,
-      );
       paintGrid(
         canvas,
         cache,
@@ -427,20 +416,8 @@ export function SnakeBoard({
         ],
         live.foods,
         [],
-        prevFrame
-          ? {
-              snakes: [
-                {
-                  id: "you",
-                  color: colorRef.current,
-                  body: prevFrame.snake,
-                  alive: true,
-                },
-              ],
-              foods: prevFrame.foods,
-            }
-          : null,
-        t,
+        null,
+        1,
         { tick: Math.floor(now / BASE_TICK_MS) },
       );
       frame = window.requestAnimationFrame(loop);
@@ -450,7 +427,7 @@ export function SnakeBoard({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [lastTickAtRef, liveRef, prevLiveRef, titleSnakesRef]);
+  }, [lastTickAtRef, liveRef, titleSnakesRef]);
 
   return (
     <Shell>

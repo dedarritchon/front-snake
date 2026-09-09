@@ -101,12 +101,6 @@ describe("elbowRadii", () => {
       elbowRadii({ x: 5, y: 4 }, { x: 5, y: 5 }, { x: 5, y: 6 }, 8),
     ).toBeNull();
   });
-
-  it("still treats a sliding turn as an elbow", () => {
-    expect(
-      elbowRadii({ x: 5, y: 9.5 }, { x: 5, y: 10.5 }, { x: 4.5, y: 11 }, 8),
-    ).toEqual([0, 0, 8, 0]);
-  });
 });
 
 describe("lerpAmount", () => {

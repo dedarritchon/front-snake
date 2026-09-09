@@ -176,27 +176,6 @@ export function lerpBodies(
   return out;
 }
 
-function lerpShots(
-  prev: PaintShot[] | undefined,
-  curr: PaintShot[],
-  t: number,
-): PaintShot[] {
-  if (prev?.length !== curr.length || t >= 1) {
-    return curr;
-  }
-  return curr.map((shot, index) => {
-    const from = prev[index];
-    if (from.ownerId !== shot.ownerId) {
-      return shot;
-    }
-    return {
-      ownerId: shot.ownerId,
-      x: from.x + (shot.x - from.x) * t,
-      y: from.y + (shot.y - from.y) * t,
-    };
-  });
-}
-
 function syncCanvasSize(
   canvas: HTMLCanvasElement,
   cache: CanvasPaintCache,
@@ -551,12 +530,12 @@ export function paintGrid(
   snakes: PaintSnake[],
   foods: Point[],
   shots: PaintShot[] = [],
-  prev?: {
+  _prev?: {
     snakes?: PaintSnake[];
     foods?: Point[];
     shots?: PaintShot[];
   } | null,
-  t = 1,
+  _t = 1,
   extras?: PaintGridExtras,
 ): void {
   const ctx = syncCanvasSize(canvas, cache);
@@ -572,19 +551,8 @@ export function paintGrid(
   const cellW = width / cols;
   const cellH = height / rows;
   const tick = extras?.tick ?? 0;
-  const prevById = new Map<string, PaintSnake>();
-  if (prev?.snakes && t < 1) {
-    for (const snake of prev.snakes) {
-      if (snake.id) {
-        prevById.set(snake.id, snake);
-      }
-    }
-  }
-
   const draw = (snake: PaintSnake) => {
-    const from = snake.id ? prevById.get(snake.id) : undefined;
-    const body = lerpBodies(from?.body, snake.body, t, cols, rows);
-    paintOneSnake(ctx, snake, body, cellW, cellH, tick, cols, rows);
+    paintOneSnake(ctx, snake, snake.body, cellW, cellH, tick, cols, rows);
   };
 
   let anyDead = false;
@@ -629,10 +597,9 @@ export function paintGrid(
     }
   }
   if (shots.length > 0) {
-    const drawnShots = lerpShots(prev?.shots, shots, t);
     const padX = cellW * 0.22;
     const padY = cellH * 0.22;
-    for (const shot of drawnShots) {
+    for (const shot of shots) {
       ctx.fillStyle = colors.get(shot.ownerId) ?? LCD.pixel;
       ctx.fillRect(
         shot.x * cellW + padX,
