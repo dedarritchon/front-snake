@@ -15,8 +15,35 @@ describe("lerpBodies", () => {
     ];
     expect(lerpBodies(prev, curr, 0.5)).toEqual([
       { x: 1.5, y: 1 },
-      { x: 0.5, y: 1 },
+      { x: 1, y: 1 },
       { x: 0, y: 1 },
+    ]);
+  });
+
+  it("slides only the head and tail so turns stay on the grid", () => {
+    const prev = [
+      { x: 5, y: 10 },
+      { x: 5, y: 11 },
+      { x: 4, y: 11 },
+    ];
+    const curr = [
+      { x: 5, y: 9 },
+      { x: 5, y: 10 },
+      { x: 5, y: 11 },
+    ];
+    expect(lerpBodies(prev, curr, 0.5)).toEqual([
+      { x: 5, y: 9.5 },
+      { x: 5, y: 10 },
+      { x: 4.5, y: 11 },
+    ]);
+  });
+
+  it("moves a diagonal jump on an L instead of a shortcut", () => {
+    expect(lerpBodies([{ x: 0, y: 0 }], [{ x: 1, y: 1 }], 0.25)).toEqual([
+      { x: 0.5, y: 0 },
+    ]);
+    expect(lerpBodies([{ x: 0, y: 0 }], [{ x: 1, y: 1 }], 0.75)).toEqual([
+      { x: 1, y: 0.5 },
     ]);
   });
 

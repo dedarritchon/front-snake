@@ -97,6 +97,21 @@ export function lerpAmount(
   return t;
 }
 
+function lerpAxis(from: Point, to: Point, t: number): Point {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx !== 0 && dy !== 0) {
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    const dist = t * (ax + ay);
+    if (dist <= ax) {
+      return { x: from.x + Math.sign(dx) * dist, y: from.y };
+    }
+    return { x: to.x, y: from.y + Math.sign(dy) * (dist - ax) };
+  }
+  return { x: from.x + dx * t, y: from.y + dy * t };
+}
+
 export function lerpBodies(
   prev: Point[] | undefined,
   curr: Point[],
@@ -108,29 +123,25 @@ export function lerpBodies(
   if (t <= 0) {
     return prev;
   }
-  const shared = Math.min(prev.length, curr.length);
-  const out: Point[] = [];
-  for (let i = 0; i < shared; i += 1) {
-    out.push({
-      x: prev[i].x + (curr[i].x - prev[i].x) * t,
-      y: prev[i].y + (curr[i].y - prev[i].y) * t,
-    });
-  }
-  for (let i = shared; i < curr.length; i += 1) {
-    out.push(curr[i]);
-  }
-  return out;
-}
-
-function lerpPoints(
-  prev: Point[] | undefined,
-  curr: Point[],
-  t: number,
-): Point[] {
-  if (prev?.length !== curr.length) {
+  if (curr.length === 0) {
     return curr;
   }
-  return lerpBodies(prev, curr, t);
+  const out: Point[] = [lerpAxis(prev[0] ?? curr[0], curr[0], t)];
+  if (curr.length === 1) {
+    return out;
+  }
+  if (curr.length > prev.length) {
+    for (let i = 1; i < curr.length; i += 1) {
+      out.push(curr[i]);
+    }
+    return out;
+  }
+  for (let i = 1; i < curr.length - 1; i += 1) {
+    out.push(curr[i]);
+  }
+  const tailFrom = prev[prev.length - 1] ?? curr[curr.length - 1];
+  out.push(lerpAxis(tailFrom, curr[curr.length - 1], t));
+  return out;
 }
 
 function lerpShots(
@@ -468,8 +479,7 @@ export function paintGrid(
     }
   }
 
-  const drawnFoods = lerpPoints(prev?.foods, foods, t);
-  for (const food of drawnFoods) {
+  for (const food of foods) {
     paintFood(ctx, food, cellW, cellH);
   }
 
