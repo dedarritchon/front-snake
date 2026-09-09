@@ -18,6 +18,7 @@ import {
   keepLocalIntent,
   killPlayer,
   markHostLeft,
+  MP_BLAST_TICKS,
   MP_BOMB_FUSE_TICKS,
   MP_COUNTDOWN_START,
   MP_FIRE_COOLDOWN,
@@ -1376,7 +1377,15 @@ describe("multiplayerEngine", () => {
     expect(state.snakes.every((snake) => snake.alive)).toBe(true);
     const next = tickMp(state);
     expect(next.bombs).toEqual([]);
+    expect(next.blasts).toEqual([
+      { x: 10, y: 10, life: MP_BLAST_TICKS },
+    ]);
     expect(next.snakes.every((snake) => snake.alive)).toBe(true);
+    let leftover = next;
+    for (let i = 0; i < MP_BLAST_TICKS; i += 1) {
+      leftover = tickMp(leftover);
+    }
+    expect(leftover.blasts).toEqual([]);
   });
 
   it("kills head, body, and the planter in blast radius", () => {
@@ -1424,6 +1433,9 @@ describe("multiplayerEngine", () => {
     });
     expect(headHit.status).toBe("playing");
     expect(headHit.snakes[0].alive).toBe(false);
+    expect(headHit.blasts).toEqual([
+      { x: 10, y: 10, life: MP_BLAST_TICKS },
+    ]);
     expect(headHit.lastDeaths[0]).toMatchObject({
       playerId: "a",
       cause: "bomb",

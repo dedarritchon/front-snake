@@ -21,6 +21,7 @@ export const MP_POWER_COST = 3;
 export const MP_FIRE_COOLDOWN = 2;
 export const MP_TURBO_TICKS = Math.round(1000 / MP_TICK_MS);
 export const MP_BOMB_FUSE_TICKS = Math.round(3000 / MP_TICK_MS);
+export const MP_BLAST_TICKS = 3;
 export const MP_ROUNDS = 10;
 export const MP_WIN_LENGTH = 20;
 export const MP_COUNTDOWN_MS = 1000;
@@ -56,11 +57,18 @@ export interface MpBomb {
   fuse: number;
 }
 
+export interface MpBlast {
+  x: number;
+  y: number;
+  life: number;
+}
+
 export interface MpSnapshot {
   snakes: MpSnake[];
   foods: Point[];
   shots: MpShot[];
   bombs: MpBomb[];
+  blasts: MpBlast[];
 }
 
 export interface MpPlayer {
@@ -96,6 +104,7 @@ export interface MpState {
   foods: Point[];
   shots: MpShot[];
   bombs: MpBomb[];
+  blasts: MpBlast[];
   status: MpStatus;
   winnerId: string | null;
   matchRound: number;
@@ -297,6 +306,7 @@ export function snapshotMp(state: MpState): MpSnapshot {
     foods: state.foods.map((point) => ({ ...point })),
     shots: state.shots.map((shot) => ({ ...shot })),
     bombs: state.bombs.map((bomb) => ({ ...bomb })),
+    blasts: state.blasts.map((blast) => ({ ...blast })),
   };
 }
 
@@ -393,6 +403,7 @@ interface MpWireSnapshot {
   foods: number[];
   shots: MpShot[];
   bombs?: MpBomb[];
+  blasts?: MpBlast[];
 }
 
 export interface MpWireState {
@@ -410,6 +421,7 @@ export interface MpWireState {
   foods: number[];
   shots?: MpShot[];
   bombs?: MpBomb[];
+  blasts?: MpBlast[];
   lastDeaths?: MpDeath[];
   replay?: MpWireSnapshot[];
 }
@@ -591,6 +603,32 @@ function unpackBombs(value: unknown): MpBomb[] {
   return bombs;
 }
 
+function unpackBlasts(value: unknown): MpBlast[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const blasts: MpBlast[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const row = item as { x?: unknown; y?: unknown; life?: unknown };
+    if (
+      typeof row.x !== "number" ||
+      typeof row.y !== "number" ||
+      typeof row.life !== "number"
+    ) {
+      continue;
+    }
+    blasts.push({
+      x: row.x,
+      y: row.y,
+      life: Math.max(0, Math.floor(row.life)),
+    });
+  }
+  return blasts;
+}
+
 function packSnapshot(snapshot: MpSnapshot): MpWireSnapshot {
   const packed: MpWireSnapshot = {
     snakes: snapshot.snakes.map(packSnake),
@@ -599,6 +637,9 @@ function packSnapshot(snapshot: MpSnapshot): MpWireSnapshot {
   };
   if (snapshot.bombs.length > 0) {
     packed.bombs = snapshot.bombs;
+  }
+  if (snapshot.blasts.length > 0) {
+    packed.blasts = snapshot.blasts;
   }
   return packed;
 }
@@ -625,6 +666,7 @@ function unpackSnapshot(value: unknown): MpSnapshot | null {
     foods,
     shots: Array.isArray(row.shots) ? (row.shots as MpShot[]) : [],
     bombs: unpackBombs(row.bombs),
+    blasts: unpackBlasts(row.blasts),
   };
 }
 
@@ -645,6 +687,7 @@ export function createPackedSnapshotRing(capacity = MP_REPLAY_FRAMES) {
         foods: state.foods,
         shots: state.shots,
         bombs: state.bombs,
+        blasts: state.blasts,
       });
       if (size < capacity) {
         slots[(start + size) % capacity] = packed;
@@ -730,6 +773,9 @@ export function toWireState(
   if (state.bombs.length > 0) {
     wire.bombs = state.bombs;
   }
+  if (state.blasts.length > 0) {
+    wire.blasts = state.blasts;
+  }
   if (state.lastDeaths.length > 0) {
     wire.lastDeaths = state.lastDeaths;
   }
@@ -782,6 +828,7 @@ export function fromWireState(payload: unknown): MpState | null {
   }
   const shots = Array.isArray(row.shots) ? (row.shots as MpShot[]) : [];
   const bombs = unpackBombs(row.bombs);
+  const blasts = unpackBlasts(row.blasts);
   const lastDeaths = Array.isArray(row.lastDeaths)
     ? (row.lastDeaths as MpDeath[])
     : [];
@@ -790,6 +837,7 @@ export function fromWireState(payload: unknown): MpState | null {
     foods,
     shots,
     bombs,
+    blasts,
     status: row.status,
     winnerId: typeof row.winnerId === "string" ? row.winnerId : null,
     seed: row.seed,
@@ -852,6 +900,7 @@ export function beginReplay(state: MpState, frames: MpSnapshot[]): MpState {
     foods: first.foods,
     shots: first.shots,
     bombs: first.bombs,
+    blasts: first.blasts,
     replay: frames,
     replayIndex: 0,
   };
@@ -877,6 +926,7 @@ export function advanceReplay(state: MpState): MpState {
     foods: frame.foods,
     shots: frame.shots,
     bombs: frame.bombs,
+    blasts: frame.blasts,
   };
 }
 
@@ -1002,6 +1052,7 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     foods: [],
     shots: [],
     bombs: [],
+    blasts: [],
     status: "lobby",
     winnerId: null,
     matchRound: 1,
@@ -1058,6 +1109,7 @@ export function beginRound(
     foods,
     shots: [],
     bombs: [],
+    blasts: [],
     status: "countdown",
     countdown: MP_COUNTDOWN_START,
     matchRound: options.resetMatch ? 1 : state.matchRound + 1,
@@ -1692,8 +1744,9 @@ function tickBombs(
   bombs: MpBomb[],
   snakes: MpSnake[],
   deaths: Map<string, MpDeath>,
-): { bombs: MpBomb[]; snakes: MpSnake[] } {
+): { bombs: MpBomb[]; snakes: MpSnake[]; blasts: MpBlast[] } {
   const nextBombs: MpBomb[] = [];
+  const blasts: MpBlast[] = [];
   const dying = new Set<string>();
   for (const bomb of bombs) {
     const fuse = bomb.fuse - 1;
@@ -1701,6 +1754,7 @@ function tickBombs(
       nextBombs.push({ ...bomb, fuse });
       continue;
     }
+    blasts.push({ x: bomb.x, y: bomb.y, life: MP_BLAST_TICKS });
     for (const snake of snakes) {
       if (!snake.alive || dying.has(snake.id)) {
         continue;
@@ -1712,10 +1766,11 @@ function tickBombs(
     }
   }
   if (dying.size === 0) {
-    return { bombs: nextBombs, snakes };
+    return { bombs: nextBombs, snakes, blasts };
   }
   return {
     bombs: nextBombs,
+    blasts,
     snakes: snakes.map((snake) =>
       dying.has(snake.id)
         ? { ...snake, alive: false, ...deadQueues() }
@@ -2009,6 +2064,9 @@ export function tickMp(state: MpState): MpState {
     deathMap.set(death.playerId, death);
   }
   const afterBombs = tickBombs(bombs, cooled, deathMap);
+  const agedBlasts = state.blasts
+    .map((blast) => ({ ...blast, life: blast.life - 1 }))
+    .filter((blast) => blast.life > 0);
   const lastDeaths =
     deathMap.size > 0 ? [...deathMap.values()] : state.lastDeaths;
   const maxScore = Math.max(0, ...afterBombs.snakes.map((snake) => snake.score));
@@ -2023,6 +2081,7 @@ export function tickMp(state: MpState): MpState {
     foods: nextFoods,
     shots: boosted.shots,
     bombs: afterBombs.bombs,
+    blasts: [...agedBlasts, ...afterBombs.blasts],
     rngState: rng.state(),
     tick: state.tick + 1,
     lastDeaths,

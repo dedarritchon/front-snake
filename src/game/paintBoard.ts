@@ -38,13 +38,21 @@ export interface PaintBomb {
   fuse: number;
 }
 
+export interface PaintBlast {
+  x: number;
+  y: number;
+  life: number;
+}
+
 export interface PaintGridExtras {
   tick?: number;
   bombs?: PaintBomb[];
+  blasts?: PaintBlast[];
   now?: number;
   lastTickAt?: number;
   tickMs?: number;
   fuseTicks?: number;
+  blastTicks?: number;
 }
 
 export function createCanvasPaintCache(): CanvasPaintCache {
@@ -305,6 +313,93 @@ function paintBomb(
   ctx.fillRect(left + cellW * 0.8, top + cellH * 0.8, spark, spark);
 }
 
+function paintBlastCell(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  dist: number,
+  cellW: number,
+  cellH: number,
+  progress: number,
+  on: boolean,
+): void {
+  if (!on) {
+    return;
+  }
+  const appearAt = dist * 0.18;
+  if (progress < appearAt) {
+    return;
+  }
+  const fade = progress > 0.65 ? 1 - (progress - 0.65) / 0.35 : 1;
+  const inset = dist === 0 ? 0.06 : 0.14 + progress * 0.08;
+  const left = x * cellW;
+  const top = y * cellH;
+  ctx.globalAlpha = Math.max(0, fade);
+  ctx.fillStyle = LCD.pixel;
+  ctx.fillRect(
+    left + cellW * inset,
+    top + cellH * inset,
+    cellW * (1 - inset * 2),
+    cellH * (1 - inset * 2),
+  );
+  ctx.fillStyle = LCD.bg;
+  const hole = dist === 0 ? 0.28 : 0.34;
+  ctx.fillRect(
+    left + cellW * hole,
+    top + cellH * hole,
+    cellW * (1 - hole * 2),
+    cellH * (1 - hole * 2),
+  );
+  ctx.fillStyle = LCD.pixel;
+  const spark = Math.min(cellW, cellH) * (0.1 + (1 - dist) * 0.06);
+  ctx.fillRect(left + cellW * 0.06, top + cellH * 0.06, spark, spark);
+  ctx.fillRect(left + cellW * 0.82, top + cellH * 0.06, spark, spark);
+  ctx.fillRect(left + cellW * 0.06, top + cellH * 0.82, spark, spark);
+  ctx.fillRect(left + cellW * 0.82, top + cellH * 0.82, spark, spark);
+  ctx.globalAlpha = 1;
+}
+
+function paintBlast(
+  ctx: CanvasRenderingContext2D,
+  blast: PaintBlast,
+  cols: number,
+  rows: number,
+  cellW: number,
+  cellH: number,
+  blastTicks: number,
+  tickMs: number,
+  lastTickAt: number,
+  now: number,
+): void {
+  const elapsed = Math.max(
+    0,
+    (blastTicks - blast.life) * tickMs + (now - lastTickAt),
+  );
+  const duration = Math.max(1, blastTicks * tickMs);
+  const progress = Math.min(1, elapsed / duration);
+  const flashOn = Math.floor(elapsed / 70) % 2 === 0;
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      const x = blast.x + dx;
+      const y = blast.y + dy;
+      if (x < 0 || y < 0 || x >= cols || y >= rows) {
+        continue;
+      }
+      const dist = Math.max(Math.abs(dx), Math.abs(dy));
+      paintBlastCell(
+        ctx,
+        x,
+        y,
+        dist,
+        cellW,
+        cellH,
+        progress,
+        dist === 0 || flashOn,
+      );
+    }
+  }
+}
+
 export function paintGrid(
   canvas: HTMLCanvasElement,
   cache: CanvasPaintCache,
@@ -399,14 +494,15 @@ export function paintGrid(
     }
   }
 
-  const bombs = extras?.bombs;
-  if (!bombs || bombs.length === 0) {
+  const bombs = extras?.bombs ?? [];
+  const blasts = extras?.blasts ?? [];
+  if (bombs.length === 0 && blasts.length === 0) {
     return;
   }
-  const fuseTicks = extras.fuseTicks ?? 1;
-  const tickMs = extras.tickMs ?? 1;
-  const lastTickAt = extras.lastTickAt ?? extras.now ?? 0;
-  const now = extras.now ?? lastTickAt;
+  const fuseTicks = extras?.fuseTicks ?? 1;
+  const tickMs = extras?.tickMs ?? 1;
+  const lastTickAt = extras?.lastTickAt ?? extras?.now ?? 0;
+  const now = extras?.now ?? lastTickAt;
   for (const bomb of bombs) {
     paintBomb(
       ctx,
@@ -414,6 +510,21 @@ export function paintGrid(
       cellW,
       cellH,
       bombBlinkOn(bomb.fuse, fuseTicks, tickMs, lastTickAt, now),
+    );
+  }
+  const blastTicks = extras?.blastTicks ?? 1;
+  for (const blast of blasts) {
+    paintBlast(
+      ctx,
+      blast,
+      cols,
+      rows,
+      cellW,
+      cellH,
+      blastTicks,
+      tickMs,
+      lastTickAt,
+      now,
     );
   }
 }

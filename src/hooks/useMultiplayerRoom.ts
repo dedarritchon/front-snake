@@ -677,6 +677,7 @@ export function useMultiplayerRoom(
           foods: frame.foods,
           shots: frame.shots,
           bombs: frame.bombs,
+          blasts: frame.blasts,
           deaths: personalReplay.deaths,
         }
       : null;

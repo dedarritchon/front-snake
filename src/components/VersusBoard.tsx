@@ -4,11 +4,13 @@ import { styled } from "styled-components";
 import {
   describeDeaths,
   hasSlowMoClip,
+  MP_BLAST_TICKS,
   MP_BOMB_FUSE_TICKS,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
   MP_ROUNDS,
+  type MpBlast,
   type MpBomb,
   type MpDeath,
   type MpPlayer,
@@ -447,6 +449,7 @@ export function VersusBoard({
     foods: Point[];
     shots: MpShot[];
     bombs: MpBomb[];
+    blasts: MpBlast[];
     deaths: MpDeath[];
   } | null;
   ai?: boolean;
@@ -541,6 +544,9 @@ export function VersusBoard({
       const currFoods = viewing ? (personal?.foods ?? live.foods) : live.foods;
       const currShots = viewing ? (personal?.shots ?? live.shots) : live.shots;
       const currBombs = viewing ? (personal?.bombs ?? live.bombs) : live.bombs;
+      const currBlasts = viewing
+        ? (personal?.blasts ?? live.blasts)
+        : live.blasts;
       const prev = viewing ? null : prevLiveRef.current;
       const lerp = !viewing && prev ? shouldLerpMp(prev, live) : false;
       const t = lerpAmount(lastTickAtRef.current, mpTickMs(live), now, !lerp);
@@ -559,10 +565,12 @@ export function VersusBoard({
         {
           tick: live.tick,
           bombs: currBombs,
+          blasts: currBlasts,
           now,
           lastTickAt: lastTickAtRef.current,
           tickMs: mpTickMs(live),
           fuseTicks: MP_BOMB_FUSE_TICKS,
+          blastTicks: MP_BLAST_TICKS,
         },
       );
       const netEl = netRef.current;
