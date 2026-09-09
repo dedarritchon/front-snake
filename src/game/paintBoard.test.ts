@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { bombBlinkOn, lerpAmount, lerpBodies, shouldLerpMp } from "./paintBoard";
+import {
+  bombBlinkOn,
+  elbowRadii,
+  lerpAmount,
+  lerpBodies,
+  shouldLerpMp,
+} from "./paintBoard";
 
 describe("lerpBodies", () => {
   it("keeps extra grown segments at the current position", () => {
@@ -77,6 +83,29 @@ describe("lerpBodies", () => {
   it("returns current when t is 1", () => {
     const curr = [{ x: 2, y: 3 }];
     expect(lerpBodies([{ x: 0, y: 0 }], curr, 1)).toBe(curr);
+  });
+});
+
+describe("elbowRadii", () => {
+  it("only rounds the outer corner of an L", () => {
+    expect(
+      elbowRadii({ x: 5, y: 4 }, { x: 5, y: 5 }, { x: 4, y: 5 }, 8),
+    ).toEqual([0, 0, 8, 0]);
+    expect(
+      elbowRadii({ x: 6, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 6 }, 3),
+    ).toEqual([3, 0, 0, 0]);
+  });
+
+  it("keeps a straight run square", () => {
+    expect(
+      elbowRadii({ x: 5, y: 4 }, { x: 5, y: 5 }, { x: 5, y: 6 }, 8),
+    ).toBeNull();
+  });
+
+  it("still treats a sliding turn as an elbow", () => {
+    expect(
+      elbowRadii({ x: 5, y: 9.5 }, { x: 5, y: 10.5 }, { x: 4.5, y: 11 }, 8),
+    ).toEqual([0, 0, 8, 0]);
   });
 });
 

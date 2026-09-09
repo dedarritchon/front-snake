@@ -260,6 +260,97 @@ function paintFood(
   );
 }
 
+type Side = "n" | "s" | "e" | "w";
+
+function neighborSide(
+  from: Point,
+  to: Point,
+  cols: number,
+  rows: number,
+): Side | null {
+  const dx = wrapDelta(from.x, to.x, cols);
+  const dy = wrapDelta(from.y, to.y, rows);
+  if (dx === 0 && dy === 0) {
+    return null;
+  }
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx > 0 ? "e" : "w";
+  }
+  return dy > 0 ? "s" : "n";
+}
+
+function innerCorner(a: Side, b: Side): 0 | 1 | 2 | 3 | null {
+  const key = a + b;
+  if (key === "nw" || key === "wn") {
+    return 0;
+  }
+  if (key === "ne" || key === "en") {
+    return 1;
+  }
+  if (key === "se" || key === "es") {
+    return 2;
+  }
+  if (key === "sw" || key === "ws") {
+    return 3;
+  }
+  return null;
+}
+
+function elbowCorner(
+  towardHead: Point | undefined,
+  curr: Point,
+  towardTail: Point | undefined,
+  cols = 0,
+  rows = 0,
+): 0 | 1 | 2 | 3 | null {
+  if (!towardHead || !towardTail) {
+    return null;
+  }
+  const a = neighborSide(curr, towardHead, cols, rows);
+  const b = neighborSide(curr, towardTail, cols, rows);
+  if (!a || !b) {
+    return null;
+  }
+  return innerCorner(a, b);
+}
+
+export function elbowRadii(
+  towardHead: Point | undefined,
+  curr: Point,
+  towardTail: Point | undefined,
+  radius: number,
+  cols = 0,
+  rows = 0,
+): [number, number, number, number] | null {
+  if (radius <= 0) {
+    return null;
+  }
+  const inner = elbowCorner(towardHead, curr, towardTail, cols, rows);
+  if (inner === null) {
+    return null;
+  }
+  const radii: [number, number, number, number] = [0, 0, 0, 0];
+  radii[(inner + 2) % 4] = radius;
+  return radii;
+}
+
+function fillSegment(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radii: [number, number, number, number] | null,
+): void {
+  if (!radii) {
+    ctx.fillRect(x, y, w, h);
+    return;
+  }
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, radii);
+  ctx.fill();
+}
+
 export function bombBlinkOn(
   fuse: number,
   fuseTicks: number,
@@ -280,6 +371,8 @@ function paintOneSnake(
   cellW: number,
   cellH: number,
   tick: number,
+  cols: number,
+  rows: number,
 ): void {
   const style = snake.style ?? "normal";
   const alive = snake.alive !== false;
@@ -299,6 +392,7 @@ function paintOneSnake(
   const padY = cellH * inset;
   const sizeW = cellW - padX * 2;
   const sizeH = cellH - padY * 2;
+  const bend = style === "logo" ? 0 : Math.min(sizeW, sizeH) * 0.5;
   ctx.globalAlpha = alpha;
   for (let index = 0; index < body.length; index += 1) {
     const segment = body[index];
@@ -307,11 +401,13 @@ function paintOneSnake(
       index,
       tick,
     );
-    ctx.fillRect(
+    fillSegment(
+      ctx,
       segment.x * cellW + padX,
       segment.y * cellH + padY,
       sizeW,
       sizeH,
+      elbowRadii(body[index - 1], segment, body[index + 1], bend, cols, rows),
     );
   }
   if (style === "normal" && !alive && body[0]) {
@@ -488,7 +584,7 @@ export function paintGrid(
   const draw = (snake: PaintSnake) => {
     const from = snake.id ? prevById.get(snake.id) : undefined;
     const body = lerpBodies(from?.body, snake.body, t, cols, rows);
-    paintOneSnake(ctx, snake, body, cellW, cellH, tick);
+    paintOneSnake(ctx, snake, body, cellW, cellH, tick, cols, rows);
   };
 
   let anyDead = false;
