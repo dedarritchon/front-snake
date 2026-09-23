@@ -4,6 +4,7 @@ import {
   createMpLobby,
   MP_GRID_WIDTH,
   MP_POWER_COST,
+  MP_REPLAY_TICK_MS,
   MP_TICK_MS,
   type MpPlayer,
   type MpState,
@@ -83,7 +84,9 @@ describe("aiTickMs", () => {
     expect(aiTickMs(playing, false)).toBe(MP_TICK_MS);
     expect(aiTickMs(playing, true)).toBe(AI_FAST_TICK_MS);
     expect(AI_FAST_TICK_MS).toBeLessThan(MP_TICK_MS / 4);
-    expect(aiTickMs({ ...playing, status: "replay" }, true)).toBe(420);
+    expect(aiTickMs({ ...playing, status: "replay" }, true)).toBe(
+      MP_REPLAY_TICK_MS,
+    );
   });
 });
 
@@ -396,5 +399,71 @@ describe("chooseAiAction", () => {
       ],
     }));
     expect(chooseAiAction(state, "hex").dir).toBe("right");
+  });
+
+  it("turns off an incoming shot when uncharged", () => {
+    const state = place(TWO, (playing) => ({
+      ...playing,
+      foods: [{ x: 20, y: 12 }],
+      shots: [{ ownerId: "you", x: 8, y: 10, direction: "left" }],
+      snakes: [
+        {
+          ...playing.snakes[0],
+          body: [
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
+          ],
+        },
+        {
+          ...playing.snakes[1],
+          id: "hex",
+          direction: "right",
+          pending: "right",
+          power: 0,
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+      ],
+    }));
+    expect(chooseAiAction(state, "hex").dir).not.toBe("right");
+  });
+
+  it("fires to intercept an incoming shot when charged", () => {
+    const state = place(TWO, (playing) => ({
+      ...playing,
+      foods: [{ x: 20, y: 12 }],
+      shots: [{ ownerId: "you", x: 8, y: 10, direction: "left" }],
+      snakes: [
+        {
+          ...playing.snakes[0],
+          body: [
+            { x: 20, y: 20 },
+            { x: 21, y: 20 },
+            { x: 22, y: 20 },
+          ],
+        },
+        {
+          ...playing.snakes[1],
+          id: "hex",
+          direction: "right",
+          pending: "right",
+          power: MP_POWER_COST,
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+      ],
+    }));
+    expect(chooseAiAction(state, "hex")).toEqual({
+      dir: "right",
+      fire: true,
+      turbo: false,
+    });
   });
 });

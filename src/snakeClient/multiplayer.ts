@@ -16,6 +16,7 @@ import {
   isSnakeColor,
 } from "../game/snakeColors";
 import type { Direction } from "../game/types";
+import { logNet } from "./netDebug";
 import { snakeSupabase } from "./supabase";
 import { createByteRate, payloadBytes, payloadJson } from "./throughput";
 
@@ -39,7 +40,7 @@ export type RoomInput =
   | { playerId: string; kind: "bomb" };
 
 export interface RoomHandlers {
-  onState: (state: MpState) => void;
+  onState: (state: MpState, bytes: number) => void;
   onRoster: (players: MpPlayer[], hostId: string | null) => void;
   onInput: (input: RoomInput) => void;
   onStart: (seed: number) => void;
@@ -270,7 +271,14 @@ export class MultiplayerRoom {
     this.sendingState = true;
     const payload = this.pendingState;
     this.pendingState = null;
-    this.recordTraffic(payloadJson(payload));
+    const encoded = payloadJson(payload);
+    this.recordTraffic(encoded);
+    logNet("send", {
+      ev: "state",
+      bytes: encoded.length,
+      tick: payload.tick,
+      status: payload.status,
+    });
     const sent = this.channel.send({
       type: "broadcast",
       event: "state",
@@ -285,7 +293,9 @@ export class MultiplayerRoom {
   }
 
   private sendBroadcast(event: string, payload: unknown): void {
-    this.recordTraffic(payloadJson(payload));
+    const encoded = payloadJson(payload);
+    this.recordTraffic(encoded);
+    logNet("send", { ev: event, bytes: encoded.length });
     void this.channel?.send({
       type: "broadcast",
       event,
@@ -421,8 +431,15 @@ export class MultiplayerRoom {
         }
         const state = fromWireState(payload);
         if (state) {
-          this.recordTraffic(payloadJson(payload));
-          this.handlers.onState(state);
+          const encoded = payloadJson(payload);
+          this.recordTraffic(encoded);
+          logNet("recv", {
+            ev: "state",
+            bytes: encoded.length,
+            tick: state.tick,
+            status: state.status,
+          });
+          this.handlers.onState(state, encoded.length);
         }
       })
       .on("broadcast", { event: "input" }, ({ payload }) => {
@@ -433,7 +450,14 @@ export class MultiplayerRoom {
         if (!input) {
           return;
         }
-        this.recordTraffic(payloadJson(payload));
+        const encoded = payloadJson(payload);
+        this.recordTraffic(encoded);
+        logNet("recv", {
+          ev: "input",
+          bytes: encoded.length,
+          from: input.playerId,
+          kind: input.kind,
+        });
         this.handlers.onInput(input);
       })
       .on("broadcast", { event: "start" }, ({ payload }) => {

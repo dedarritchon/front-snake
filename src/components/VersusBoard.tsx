@@ -26,12 +26,10 @@ import {
   clearBoard,
   createCanvasPaintCache,
   LCD,
-  lerpAmount,
   paintBlinkKey,
   paintFrameKey,
   paintGrid,
   setCanvasCssSize,
-  shouldLerpMp,
   shouldSkipPaint,
 } from "../game/paintBoard";
 import { snakeSwatch } from "../game/snakeColors";
@@ -413,7 +411,6 @@ function winnerName(state: MpState): string {
 export function VersusBoard({
   state,
   liveRef,
-  prevLiveRef,
   lastTickAtRef,
   players,
   youId,
@@ -562,9 +559,6 @@ export function VersusBoard({
       const currBlasts = viewing
         ? (personal?.blasts ?? live.blasts)
         : live.blasts;
-      const prev = viewing ? null : prevLiveRef.current;
-      const lerp = !viewing && prev ? shouldLerpMp(prev, live) : false;
-      const t = lerpAmount(lastTickAtRef.current, mpTickMs(live), now, !lerp);
       const blink = paintBlinkKey(
         currBombs,
         currBlasts,
@@ -581,7 +575,7 @@ export function VersusBoard({
       }
       const key = paintFrameKey(
         live.tick,
-        t,
+        1,
         `${blink}:${bodies}`,
         cache.cssW,
         cache.cssH,
@@ -595,10 +589,8 @@ export function VersusBoard({
           currSnakes,
           currFoods,
           currShots,
-          lerp && prev
-            ? { snakes: prev.snakes, foods: prev.foods, shots: prev.shots }
-            : null,
-          t,
+          null,
+          1,
           {
             tick: live.tick,
             bombs: currBombs,
@@ -619,7 +611,7 @@ export function VersusBoard({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [lastTickAtRef, liveRef, prevLiveRef]);
+  }, [lastTickAtRef, liveRef]);
 
   return (
     <Shell>

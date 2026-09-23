@@ -5,6 +5,7 @@ import {
   MP_REPLAY_TICK_MS,
   MP_TICK_MS,
   type MpPlayer,
+  type MpShot,
   type MpSnake,
   type MpState,
 } from "./multiplayerEngine";
@@ -244,6 +245,52 @@ function shotSpawn(head: Point, direction: Direction): Point {
   return ahead(ahead(head, direction), direction);
 }
 
+function interceptsShot(head: Point, dir: Direction, shot: MpShot): boolean {
+  const spawn = shotSpawn(head, dir);
+  const next = ahead(head, dir);
+  const landing = ahead(shot, shot.direction);
+  return (
+    pointsEqual(landing, spawn) ||
+    (pointsEqual(shot, spawn) && pointsEqual(landing, next))
+  );
+}
+
+function shotThreat(
+  self: MpSnake,
+  next: Point,
+  dir: Direction,
+  state: MpState,
+): number {
+  const head = self.body[0];
+  const charged = self.power >= MP_POWER_COST;
+  let threat = 0;
+  for (const shot of state.shots) {
+    if (shot.ownerId === self.id) {
+      continue;
+    }
+    if (charged && interceptsShot(head, dir, shot)) {
+      continue;
+    }
+    const landing = ahead(shot, shot.direction);
+    if (pointsEqual(landing, next) || pointsEqual(landing, head)) {
+      threat += 50_000;
+      continue;
+    }
+    let cursor = landing;
+    for (let steps = 1; steps <= 8; steps += 1) {
+      cursor = ahead(cursor, shot.direction);
+      if (!inBounds(cursor)) {
+        break;
+      }
+      if (pointsEqual(cursor, next)) {
+        threat += Math.max(400, 22_000 - steps * 2_400);
+        break;
+      }
+    }
+  }
+  return threat;
+}
+
 function manhattan(a: Point, b: Point): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
@@ -385,6 +432,16 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     if (hit === "head" && self.power >= MP_POWER_COST) {
       score += kind === "hunter" ? 20_000 : 6_000;
     }
+    if (
+      self.power >= MP_POWER_COST &&
+      state.shots.some(
+        (shot) =>
+          shot.ownerId !== self.id && interceptsShot(head, dir, shot),
+      )
+    ) {
+      score += 8_000;
+    }
+    score -= shotThreat(self, next, dir, state);
     if (score > bestScore) {
       bestScore = score;
       bestDir = dir;
@@ -393,8 +450,14 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
   }
 
   const fireHit = rayHit(shotSpawn(head, bestDir), bestDir, state, self.id);
+  const intercept =
+    self.power >= MP_POWER_COST &&
+    state.shots.some(
+      (shot) => shot.ownerId !== self.id && interceptsShot(head, bestDir, shot),
+    );
   const fire =
-    self.power >= MP_POWER_COST && (fireHit === "head" || fireHit === "food");
+    self.power >= MP_POWER_COST &&
+    (fireHit === "head" || fireHit === "food" || intercept);
   const charges = Math.floor(self.power / MP_POWER_COST);
   const turbo =
     kind !== "farmer" &&

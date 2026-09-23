@@ -28,8 +28,8 @@ import {
   queueMpFire,
   queueMpInput,
   queueMpTurbo,
-  shouldCoverLateHost,
   shouldPersonalSlowMo,
+  shouldPredictLocalTick,
   shouldSlowMo,
   snapshotMp,
   tickMp,
@@ -46,6 +46,7 @@ import {
   roomIdentity,
   type RoomLink,
 } from "../snakeClient/multiplayer";
+import { createNetStats, logNet } from "../snakeClient/netDebug";
 
 export function useMultiplayerRoom(
   roomId: string,
@@ -78,9 +79,11 @@ export function useMultiplayerRoom(
   const historyRef = useRef(createPackedSnapshotRing());
   const personalReplayRef = useRef(false);
   const localReplayRef = useRef(false);
-  const lastHostAtRef = useRef(0);
   const lastHostTickRef = useRef(-1);
+  const guestClockRef = useRef(0);
   const aheadRef = useRef(false);
+  const lastSnapAtRef = useRef(0);
+  const netStatsRef = useRef(createNetStats());
   const [personalReplay, setPersonalReplay] = useState<{
     frames: MpSnapshot[];
     index: number;
@@ -175,6 +178,32 @@ export function useMultiplayerRoom(
   const publishRef = useRef(publish);
   publishRef.current = publish;
 
+  const predictLocal = useCallback(() => {
+    if (isHostRef.current) {
+      return;
+    }
+    const latest = stateRef.current;
+    if (
+      latest?.status !== "playing" ||
+      !shouldPredictLocalTick(latest.tick, lastHostTickRef.current)
+    ) {
+      return;
+    }
+    const next = advanceLocalSnake(latest, identityRef.current.playerId);
+    if (next === latest) {
+      return;
+    }
+    aheadRef.current = true;
+    logNet("predict", {
+      tick: next.tick,
+      host: lastHostTickRef.current,
+    });
+    netStatsRef.current.recordPredict();
+    commitState(next, { predict: true });
+  }, [commitState]);
+  const predictLocalRef = useRef(predictLocal);
+  predictLocalRef.current = predictLocal;
+
   const clearReady = useCallback(() => {
     if (!readyRef.current) {
       return;
@@ -220,6 +249,12 @@ export function useMultiplayerRoom(
       {
         onLink: (next) => {
           if (!cancelled) {
+            logNet("link", {
+              status: next,
+              room: roomId,
+              you: identity.playerId,
+              host: isHostRef.current,
+            });
             setLink(next);
             if (next === "connected") {
               setError(null);
@@ -262,6 +297,13 @@ export function useMultiplayerRoom(
               !inMatch &&
               current?.status !== "over" &&
               nextPlayers[0]?.id === identity.playerId);
+          if (nowHost !== isHostRef.current) {
+            logNet("role", {
+              host: nowHost,
+              you: identity.playerId,
+              players: nextPlayers.length,
+            });
+          }
           if (nowHost && !isHostRef.current) {
             void room.setHost(true);
           }
@@ -314,7 +356,7 @@ export function useMultiplayerRoom(
             commitState(left, { forceHud: true });
           }
         },
-        onState: (next) => {
+        onState: (next, bytes) => {
           if (cancelled || isHostRef.current) {
             return;
           }
@@ -324,10 +366,34 @@ export function useMultiplayerRoom(
           localReplayRef.current = false;
           const current = stateRef.current;
           if (!acceptHostTick(lastHostTickRef.current, next, current?.status)) {
+            netStatsRef.current.recordDrop();
+            logNet("drop", {
+              tick: next.tick,
+              last: lastHostTickRef.current,
+              status: next.status,
+            });
             return;
           }
+          const now = performance.now();
+          const dt =
+            lastSnapAtRef.current > 0
+              ? Math.round(now - lastSnapAtRef.current)
+              : 0;
+          const gap =
+            lastHostTickRef.current >= 0
+              ? next.tick - lastHostTickRef.current
+              : 0;
+          logNet("snap", {
+            tick: next.tick,
+            dt,
+            gap,
+            status: next.status,
+            bytes,
+            ahead: aheadRef.current,
+          });
+          netStatsRef.current.recordSnap(dt, bytes);
+          lastSnapAtRef.current = now;
           lastHostTickRef.current = next.tick;
-          lastHostAtRef.current = performance.now();
           aheadRef.current = false;
           const applied = applyHostSnapshot(next, current, identity.playerId);
           if (current?.status === "playing" && applied.status === "playing") {
@@ -347,6 +413,14 @@ export function useMultiplayerRoom(
             }
           }
           commitState(applied);
+          if (applied.status === "playing") {
+            predictLocalRef.current();
+          }
+          guestClockRef.current = performance.now();
+          const summary = netStatsRef.current.flushIfDue(now);
+          if (summary) {
+            logNet("stats", { role: "guest", ...summary });
+          }
           if (next.status === "playing" || next.status === "countdown") {
             clearReadyRef.current();
           }
@@ -368,6 +442,11 @@ export function useMultiplayerRoom(
                   ? queueMpBomb(current, input.playerId)
                   : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
+          logNet("input", {
+            from: input.playerId,
+            kind: input.kind,
+            dir: input.kind === "dir" ? input.dir : undefined,
+          });
         },
         onStart: () => {
           if (!isHostRef.current) {
@@ -399,8 +478,10 @@ export function useMultiplayerRoom(
     historyRef.current = createPackedSnapshotRing();
     prevLiveRef.current = null;
     personalReplayRef.current = false;
-    lastHostAtRef.current = 0;
     lastHostTickRef.current = -1;
+    guestClockRef.current = 0;
+    lastSnapAtRef.current = 0;
+    netStatsRef.current.reset();
     aheadRef.current = false;
     sentOverReplayRef.current = false;
     setPersonalReplay(null);
@@ -464,19 +545,14 @@ export function useMultiplayerRoom(
       const current = stateRef.current;
       if (current?.status === "playing") {
         const now = performance.now();
-        if (
-          shouldCoverLateHost(
-            aheadRef.current,
-            now,
-            lastHostAtRef.current,
-            mpTickMs(current),
-          )
-        ) {
-          const next = advanceLocalSnake(current, identityRef.current.playerId);
-          if (next !== current) {
-            aheadRef.current = true;
-            commitState(next, { predict: true });
-          }
+        const delay = mpTickMs(current);
+        while (now - guestClockRef.current >= delay) {
+          guestClockRef.current += delay;
+          predictLocal();
+          break;
+        }
+        if (now - guestClockRef.current > delay * 4) {
+          guestClockRef.current = now - delay;
         }
       }
       frame = window.requestAnimationFrame(step);
@@ -485,7 +561,7 @@ export function useMultiplayerRoom(
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [commitState, isHost, state?.status]);
+  }, [isHost, predictLocal, state?.status]);
 
   useEffect(() => {
     const playing = state?.status === "playing";
@@ -570,7 +646,23 @@ export function useMultiplayerRoom(
           snakeAudio.playDie();
         }
         if (isHostRef.current && !localReplayRef.current) {
+          const dt =
+            lastSnapAtRef.current > 0
+              ? Math.round(now - lastSnapAtRef.current)
+              : 0;
+          lastSnapAtRef.current = now;
+          logNet("tick", {
+            role: "host",
+            tick: next.tick,
+            dt,
+            status: next.status,
+          });
+          netStatsRef.current.recordSnap(dt, 0);
           publish(next);
+          const summary = netStatsRef.current.flushIfDue(now);
+          if (summary) {
+            logNet("stats", { role: "host", ...summary });
+          }
         } else {
           commitState(next);
         }
@@ -608,6 +700,11 @@ export function useMultiplayerRoom(
     }
     snakeAudio.playMove(direction);
     stateRef.current = next;
+    logNet("input", {
+      kind: "dir",
+      dir: direction,
+      host: isHostRef.current,
+    });
     if (!isHostRef.current) {
       roomRef.current?.sendInput(direction);
     }
@@ -624,6 +721,7 @@ export function useMultiplayerRoom(
       return;
     }
     stateRef.current = next;
+    logNet("input", { kind: "fire", host: isHostRef.current });
     if (!isHostRef.current) {
       roomRef.current?.sendFire();
     }
@@ -640,6 +738,7 @@ export function useMultiplayerRoom(
       return;
     }
     stateRef.current = next;
+    logNet("input", { kind: "turbo", host: isHostRef.current });
     if (!isHostRef.current) {
       roomRef.current?.sendTurbo();
     }
@@ -656,6 +755,7 @@ export function useMultiplayerRoom(
       return;
     }
     stateRef.current = next;
+    logNet("input", { kind: "bomb", host: isHostRef.current });
     if (!isHostRef.current) {
       roomRef.current?.sendBomb();
     }

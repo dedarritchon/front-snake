@@ -14,7 +14,7 @@ import {
   type MpState,
   queueMpFire,
   queueMpInput,
-  shouldCoverLateHost,
+  shouldPredictLocalTick,
   snapshotMp,
   startMp,
   tickMp,
@@ -152,15 +152,16 @@ describe("multiplayer performance", () => {
       y: local.snakes[1].body[0].y + 1,
     });
     expect(predicted.foods).toBe(local.foods);
-    expect(shouldCoverLateHost(true, 300, 100, MP_TICK_MS)).toBe(false);
-    expect(shouldCoverLateHost(false, 300, 100, MP_TICK_MS)).toBe(true);
-    expect(shouldCoverLateHost(false, 200, 0, MP_TICK_MS)).toBe(false);
+    expect(shouldPredictLocalTick(host.tick, host.tick)).toBe(true);
+    expect(shouldPredictLocalTick(host.tick + 1, host.tick)).toBe(false);
+    expect(shouldPredictLocalTick(0, -1)).toBe(false);
 
     const incoming = { ...host, tick: host.tick + 1 };
     expect(acceptHostTick(host.tick, incoming, host.status)).toBe(true);
     const applied = applyHostSnapshot(incoming, predicted, "b");
     expect(applied.snakes[0].body).toEqual(host.snakes[0].body);
     expect(applied.snakes[1].pending).toBe("down");
+    expect(shouldPredictLocalTick(applied.tick, incoming.tick)).toBe(true);
   });
 
   it("wraps a turbo local step and stops at a wall", () => {

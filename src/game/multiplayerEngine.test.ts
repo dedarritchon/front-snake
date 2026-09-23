@@ -27,6 +27,7 @@ import {
   MP_MAX_PLAYERS,
   MP_POWER_COST,
   MP_REPLAY_FRAMES,
+  MP_REPLAY_TICK_MS,
   MP_ROUNDS,
   MP_START_POWER,
   MP_TICK_MS,
@@ -692,7 +693,7 @@ describe("multiplayerEngine", () => {
       ),
     };
     expect(mpTickMs(grown)).toBe(MP_TICK_MS);
-    expect(mpTickMs({ ...start, status: "replay" })).toBe(420);
+    expect(mpTickMs({ ...start, status: "replay" })).toBe(MP_REPLAY_TICK_MS);
   });
 
   it("keeps a guest turn that the host snapshot has not applied yet", () => {
@@ -1018,6 +1019,116 @@ describe("multiplayerEngine", () => {
     state = tickMp(queueMpFire(state, "a"));
     expect(state.shots).toEqual([]);
     expect(state.snakes[0].power).toBe(0);
+  });
+
+  it("cancels shots that land on the same cell", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      shots: [
+        { ownerId: "a", x: 5, y: 10, direction: "right" },
+        { ownerId: "b", x: 7, y: 10, direction: "left" },
+      ],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "up",
+          pending: "up",
+          body: [
+            { x: 2, y: 20 },
+            { x: 2, y: 21 },
+            { x: 2, y: 22 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "up",
+          pending: "up",
+          body: [
+            { x: 20, y: 20 },
+            { x: 20, y: 21 },
+            { x: 20, y: 22 },
+          ],
+        },
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.shots).toEqual([]);
+    expect(next.snakes.every((snake) => snake.alive)).toBe(true);
+  });
+
+  it("cancels shots that pass through each other", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      shots: [
+        { ownerId: "a", x: 5, y: 10, direction: "right" },
+        { ownerId: "b", x: 6, y: 10, direction: "left" },
+      ],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "up",
+          pending: "up",
+          body: [
+            { x: 2, y: 20 },
+            { x: 2, y: 21 },
+            { x: 2, y: 22 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "up",
+          pending: "up",
+          body: [
+            { x: 20, y: 20 },
+            { x: 20, y: 21 },
+            { x: 20, y: 22 },
+          ],
+        },
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.shots).toEqual([]);
+    expect(next.snakes.every((snake) => snake.alive)).toBe(true);
+  });
+
+  it("cancels a newly fired shot against an oncoming shot", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      shots: [{ ownerId: "b", x: 7, y: 10, direction: "left" }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          power: MP_POWER_COST,
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "up",
+          pending: "up",
+          body: [
+            { x: 20, y: 20 },
+            { x: 20, y: 21 },
+            { x: 20, y: 22 },
+          ],
+        },
+      ],
+    };
+    const next = tickMp(queueMpFire(state, "a"));
+    expect(next.shots).toEqual([]);
+    expect(next.snakes[0].alive).toBe(true);
+    expect(next.snakes[0].body[0]).toEqual({ x: 6, y: 10 });
   });
 
   it("does not move snakes during countdown and ignores fire", () => {

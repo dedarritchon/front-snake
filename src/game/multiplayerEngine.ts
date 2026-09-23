@@ -12,7 +12,7 @@ import { DIRECTION_DELTA, OPPOSITE } from "./types";
 
 export const MP_MAX_PLAYERS = 4;
 export const MP_TICK_MS = BASE_TICK_MS;
-export const MP_REPLAY_TICK_MS = 420;
+export const MP_REPLAY_TICK_MS = MP_TICK_MS * 3;
 export const MP_REPLAY_FRAMES = 10;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
@@ -874,16 +874,11 @@ export function applyHostSnapshot(
   return retainReplay(keepLocalIntent(incoming, local, playerId), local);
 }
 
-export function shouldCoverLateHost(
-  ahead: boolean,
-  now: number,
-  lastHostAt: number,
-  tickMs: number,
+export function shouldPredictLocalTick(
+  localTick: number,
+  hostTick: number,
 ): boolean {
-  if (ahead || lastHostAt <= 0 || tickMs <= 0) {
-    return false;
-  }
-  return now - lastHostAt > tickMs;
+  return hostTick >= 0 && localTick <= hostTick;
 }
 
 export function advanceLocalSnake(state: MpState, playerId: string): MpState {
@@ -1710,6 +1705,60 @@ function applyHeadCollisions(
   }
 }
 
+function cancelCollidingShots(
+  moving: { shot: MpShot; from: Point }[],
+): MpShot[] {
+  const dead = new Set<number>();
+  const at = new Map<number, number[]>();
+  for (let i = 0; i < moving.length; i += 1) {
+    const key = cellCode(moving[i].shot);
+    const list = at.get(key);
+    if (list) {
+      list.push(i);
+    } else {
+      at.set(key, [i]);
+    }
+  }
+  for (const list of at.values()) {
+    if (list.length < 2) {
+      continue;
+    }
+    for (let a = 0; a < list.length; a += 1) {
+      for (let b = a + 1; b < list.length; b += 1) {
+        const i = list[a];
+        const j = list[b];
+        const shotA = moving[i].shot;
+        const shotB = moving[j].shot;
+        if (
+          shotA.ownerId === shotB.ownerId &&
+          shotA.direction === shotB.direction
+        ) {
+          continue;
+        }
+        dead.add(i);
+        dead.add(j);
+      }
+    }
+  }
+  for (let i = 0; i < moving.length; i += 1) {
+    for (let j = i + 1; j < moving.length; j += 1) {
+      if (
+        pointsEqual(moving[i].from, moving[j].shot) &&
+        pointsEqual(moving[j].from, moving[i].shot)
+      ) {
+        dead.add(i);
+        dead.add(j);
+      }
+    }
+  }
+  if (dead.size === 0) {
+    return moving.map((row) => row.shot);
+  }
+  return moving
+    .filter((_, index) => !dead.has(index))
+    .map((row) => row.shot);
+}
+
 function resolveShot(
   shot: MpShot,
   snakes: MpSnake[],
@@ -2020,7 +2069,7 @@ export function tickMp(state: MpState): MpState {
 
   const dying = new Set<string>();
   const bodies = new Map<string, Point[]>();
-  const spawned: MpShot[] = [];
+  const spawned: { shot: MpShot; from: Point }[] = [];
   for (const snake of alive) {
     let charges = Math.floor(snake.power / MP_POWER_COST);
     const willFire =
@@ -2043,10 +2092,13 @@ export function tickMp(state: MpState): MpState {
       const head = nextHead.get(snake.id) ?? snake.body[0];
       const delta = DIRECTION_DELTA[dir];
       spawned.push({
-        ownerId: snake.id,
-        x: head.x + delta.x,
-        y: head.y + delta.y,
-        direction: dir,
+        shot: {
+          ownerId: snake.id,
+          x: head.x + delta.x,
+          y: head.y + delta.y,
+          direction: dir,
+        },
+        from: { x: head.x, y: head.y },
       });
       firedIds.add(snake.id);
     }
@@ -2066,16 +2118,19 @@ export function tickMp(state: MpState): MpState {
   const traveling = state.shots.map((shot) => {
     const delta = DIRECTION_DELTA[shot.direction];
     return {
-      ownerId: shot.ownerId,
-      x: shot.x + delta.x,
-      y: shot.y + delta.y,
-      direction: shot.direction,
+      shot: {
+        ownerId: shot.ownerId,
+        x: shot.x + delta.x,
+        y: shot.y + delta.y,
+        direction: shot.direction,
+      },
+      from: { x: shot.x, y: shot.y },
     };
   });
 
   let foods = [...state.foods];
   const liveShots: MpShot[] = [];
-  for (const shot of [...traveling, ...spawned]) {
+  for (const shot of cancelCollidingShots([...traveling, ...spawned])) {
     const resolved = resolveShot(
       shot,
       state.snakes,
