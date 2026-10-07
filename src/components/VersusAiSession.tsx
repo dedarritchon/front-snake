@@ -51,6 +51,7 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
     sendFire,
     sendTurbo,
     sendBomb,
+    sendShed,
     rematch,
     replaySlowMo,
   } = useAiMatch(name);
@@ -108,6 +109,13 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
         }
         return;
       }
+      if (key === "c") {
+        event.preventDefault();
+        if (!event.repeat) {
+          sendShed();
+        }
+        return;
+      }
       if (key === "m") {
         event.preventDefault();
         if (!event.repeat) {
@@ -126,7 +134,15 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [rematch, sendBomb, sendDirection, sendFire, sendTurbo, toggleMute]);
+  }, [
+    rematch,
+    sendBomb,
+    sendDirection,
+    sendFire,
+    sendShed,
+    sendTurbo,
+    toggleMute,
+  ]);
 
   return (
     <Page>

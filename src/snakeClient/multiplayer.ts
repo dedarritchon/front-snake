@@ -37,7 +37,8 @@ export type RoomInput =
   | { playerId: string; kind: "dir"; dir: Direction }
   | { playerId: string; kind: "fire" }
   | { playerId: string; kind: "turbo" }
-  | { playerId: string; kind: "bomb" };
+  | { playerId: string; kind: "bomb" }
+  | { playerId: string; kind: "shed" };
 
 export interface RoomHandlers {
   onState: (state: MpState, bytes: number) => void;
@@ -58,6 +59,7 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
     fire?: unknown;
     turbo?: unknown;
     bomb?: unknown;
+    shed?: unknown;
   };
   if (typeof body.playerId !== "string") {
     return null;
@@ -70,6 +72,9 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
   }
   if (body.bomb === true) {
     return { playerId: body.playerId, kind: "bomb" };
+  }
+  if (body.shed === true) {
+    return { playerId: body.playerId, kind: "shed" };
   }
   if (!isDirection(body.dir)) {
     return null;
@@ -248,6 +253,10 @@ export class MultiplayerRoom {
 
   sendBomb(): void {
     this.sendBroadcast("input", { playerId: this.self.playerId, bomb: true });
+  }
+
+  sendShed(): void {
+    this.sendBroadcast("input", { playerId: this.self.playerId, shed: true });
   }
 
   sendStart(seed: number): void {

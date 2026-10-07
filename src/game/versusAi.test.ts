@@ -220,6 +220,7 @@ describe("chooseAiAction", () => {
       dir: "right",
       fire: true,
       turbo: false,
+      bomb: false,
     });
   });
 
@@ -464,6 +465,7 @@ describe("chooseAiAction", () => {
       dir: "right",
       fire: true,
       turbo: false,
+      bomb: false,
     });
   });
 });

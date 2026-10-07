@@ -18,6 +18,7 @@ import {
   killPlayer,
   markHostLeft,
   MP_COUNTDOWN_MS,
+  MP_HUMILIATION_TICKS,
   MP_REPLAY_TICK_MS,
   type MpDeath,
   type MpPlayer,
@@ -27,6 +28,7 @@ import {
   queueMpBomb,
   queueMpFire,
   queueMpInput,
+  queueMpShed,
   queueMpTurbo,
   shouldPersonalSlowMo,
   shouldPredictLocalTick,
@@ -411,6 +413,13 @@ export function useMultiplayerRoom(
             ) {
               snakeAudio.playDie();
             }
+            if (
+              applied.humiliations.some(
+                (row) => row.life === MP_HUMILIATION_TICKS,
+              )
+            ) {
+              snakeAudio.playHumiliate();
+            }
           }
           commitState(applied);
           if (applied.status === "playing") {
@@ -440,7 +449,9 @@ export function useMultiplayerRoom(
                 ? queueMpTurbo(current, input.playerId)
                 : input.kind === "bomb"
                   ? queueMpBomb(current, input.playerId)
-                  : queueMpInput(current, input.playerId, input.dir);
+                  : input.kind === "shed"
+                    ? queueMpShed(current, input.playerId)
+                    : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
           logNet("input", {
             from: input.playerId,
@@ -645,6 +656,11 @@ export function useMultiplayerRoom(
         if (died) {
           snakeAudio.playDie();
         }
+        if (
+          next.humiliations.some((row) => row.life === MP_HUMILIATION_TICKS)
+        ) {
+          snakeAudio.playHumiliate();
+        }
         if (isHostRef.current && !localReplayRef.current) {
           const dt =
             lastSnapAtRef.current > 0
@@ -761,6 +777,23 @@ export function useMultiplayerRoom(
     }
   }, []);
 
+  const sendShed = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    const next = queueMpShed(current, identityRef.current.playerId);
+    if (next === current) {
+      return;
+    }
+    stateRef.current = next;
+    logNet("input", { kind: "shed", host: isHostRef.current });
+    if (!isHostRef.current) {
+      roomRef.current?.sendShed();
+    }
+  }, []);
+
   const toggleReady = useCallback(() => {
     const status = stateRef.current?.status ?? "lobby";
     if (status === "playing" || status === "replay" || status === "countdown") {
@@ -810,6 +843,7 @@ export function useMultiplayerRoom(
           shots: frame.shots,
           bombs: frame.bombs,
           blasts: frame.blasts,
+          corpses: frame.corpses,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -831,6 +865,7 @@ export function useMultiplayerRoom(
     sendFire,
     sendTurbo,
     sendBomb,
+    sendShed,
     toggleReady,
     setColor,
     replaySlowMo,

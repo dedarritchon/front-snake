@@ -3,6 +3,7 @@ import { styled } from "styled-components";
 
 import {
   describeDeaths,
+  describeHumiliation,
   hasSlowMoClip,
   MP_BLAST_RADIUS,
   MP_BLAST_TICKS,
@@ -10,9 +11,11 @@ import {
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
-  MP_ROUNDS,
+  MP_WIN_LENGTH,
+  MP_WINS_NEEDED,
   type MpBlast,
   type MpBomb,
+  type MpCorpse,
   type MpDeath,
   type MpPlayer,
   type MpShot,
@@ -252,23 +255,49 @@ const CountNum = styled.span`
   line-height: 1;
 `;
 
-const Standings = styled.ol`
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: min(100%, 22ch);
-`;
+const MEDALS = ["🥇", "🥈", "🥉"] as const;
 
-const StandingRow = styled.li`
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+const Standings = styled.div`
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 4ch 5ch;
+  column-gap: 6px;
+  row-gap: 4px;
+  width: min(100%, 240px);
+  align-items: center;
   font-size: 7px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+`;
+
+const StandingHead = styled.span<{
+  $start?: boolean;
+}>`
+  text-align: ${(p) => (p.$start ? "left" : "right")};
+  opacity: 0.55;
+`;
+
+const StandingGroup = styled.span`
+  display: contents;
+`;
+
+const Place = styled.span`
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+  text-transform: none;
+`;
+
+const StandingName = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+`;
+
+const StandingStat = styled.span`
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 `;
 
 const Action = styled.button`
@@ -451,6 +480,7 @@ export function VersusBoard({
     shots: MpShot[];
     bombs: MpBomb[];
     blasts: MpBlast[];
+    corpses: MpCorpse[];
     deaths: MpDeath[];
   } | null;
   ai?: boolean;
@@ -559,6 +589,9 @@ export function VersusBoard({
       const currBlasts = viewing
         ? (personal?.blasts ?? live.blasts)
         : live.blasts;
+      const currCorpses = viewing
+        ? (personal?.corpses ?? live.corpses)
+        : live.corpses;
       const blink = paintBlinkKey(
         currBombs,
         currBlasts,
@@ -569,6 +602,9 @@ export function VersusBoard({
         MP_BLAST_TICKS,
       );
       let bodies = live.status;
+      for (const corpse of currCorpses) {
+        bodies += `:c${corpse.ownerId}:${corpse.life}:${corpse.cells.length}`;
+      }
       for (const snake of currSnakes) {
         const head = snake.body[0];
         bodies += `:${snake.alive ? 1 : 0}:${head.x},${head.y}:${snake.body.length}`;
@@ -601,6 +637,7 @@ export function VersusBoard({
             fuseTicks: MP_BOMB_FUSE_TICKS,
             blastTicks: MP_BLAST_TICKS,
             blastRadius: MP_BLAST_RADIUS,
+            corpses: currCorpses,
           },
         );
       }
@@ -622,7 +659,7 @@ export function VersusBoard({
               ? "Slow-mo"
               : status === "lobby"
                 ? `Versus ${seated.length}/4`
-                : `Round ${state?.matchRound ?? 1}/${MP_ROUNDS}`}
+                : `Round ${state?.matchRound ?? 1} · to ${MP_WINS_NEEDED}`}
           </LevelLabel>
           {ai || !getNetBps ? null : <NetSpeed ref={netRef}>0 Mb/s</NetSpeed>}
         </LevelCluster>
@@ -651,13 +688,20 @@ export function VersusBoard({
           {!error && watchingOut ? (
             <SpectateBar>
               You&apos;re out
-              <OverlayHint>
-                {ai ? "Fast-forward" : "Enter play again"}
-              </OverlayHint>
-              <Action type="button" onClick={onReady}>
-                Play again
-              </Action>
+              {ai ? <OverlayHint>Fast-forward</OverlayHint> : null}
             </SpectateBar>
+          ) : null}
+          {!error &&
+          !watchingOut &&
+          status === "playing" &&
+          state &&
+          state.humiliations.length > 0 ? (
+            <ReplayBanner>
+              Humiliated
+              <OverlayHint>
+                {describeHumiliation(state.humiliations[0], liveSnakes)}
+              </OverlayHint>
+            </ReplayBanner>
           ) : null}
           {!error &&
           !watchingOut &&
@@ -670,7 +714,7 @@ export function VersusBoard({
             <Overlay>
               <CountNum>{state.countdown}</CountNum>
               <OverlayHint>
-                Round {state.matchRound}/{MP_ROUNDS}
+                Round {state.matchRound} · to {MP_WINS_NEEDED}
               </OverlayHint>
               {lastRoundWinner ? (
                 <OverlayHint>{lastRoundWinner} took the last round</OverlayHint>
@@ -754,18 +798,20 @@ export function VersusBoard({
                   : "Over"}
               {state ? (
                 <Standings>
+                  <span />
+                  <StandingHead $start>Name</StandingHead>
+                  <StandingHead>Wins</StandingHead>
+                  <StandingHead>Score</StandingHead>
                   {roundStandings(state.snakes).map((snake, index) => (
-                    <StandingRow key={snake.id}>
-                      <span>
-                        {index + 1}. {snake.name}
+                    <StandingGroup key={snake.id}>
+                      <Place>{MEDALS[index] ?? index + 1}</Place>
+                      <StandingName>
+                        {snake.name}
                         {snake.id === youId ? " · you" : ""}
-                        {state.winnerId === snake.id ? " · win" : ""}
-                      </span>
-                      <span>
-                        {snake.roundWins}
-                        {snake.score > 0 ? ` · ${snake.score}` : ""}
-                      </span>
-                    </StandingRow>
+                      </StandingName>
+                      <StandingStat>{snake.roundWins}</StandingStat>
+                      <StandingStat>{snake.score}</StandingStat>
+                    </StandingGroup>
                   ))}
                 </Standings>
               ) : null}
@@ -826,7 +872,11 @@ export function VersusBoard({
                     status === "over"
                       ? snake?.alive
                         ? ""
-                        : " · blocks"
+                        : (state?.corpses ?? []).some(
+                              (corpse) => corpse.ownerId === player.id,
+                            )
+                          ? " · blocks"
+                          : " · out"
                       : player.ready
                         ? " · ready"
                         : ""}
@@ -859,7 +909,9 @@ export function VersusBoard({
                       ? player.ready
                         ? "Ready"
                         : "Wait"
-                      : `${snake?.roundWins ?? 0}`}
+                      : snake?.alive
+                        ? `${snake.body.length}/${MP_WIN_LENGTH}`
+                        : `${snake?.roundWins ?? 0}`}
                   </span>
                 </RosterMeta>
               </RosterRow>
@@ -867,7 +919,10 @@ export function VersusBoard({
           })}
         </Roster>
         {status === "playing" || status === "countdown" ? (
-          <OverlayHint>Space rocket · Shift turbo · B bomb</OverlayHint>
+          <OverlayHint>
+            Space cuts the body · Shift wraps the edge · B blasts in 3s · C
+            sheds the tail
+          </OverlayHint>
         ) : null}
         <Ghost type="button" onClick={onSolo}>
           Back to solo

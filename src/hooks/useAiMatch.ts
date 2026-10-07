@@ -11,6 +11,7 @@ import {
   createMpLobby,
   createPackedSnapshotRing,
   MP_COUNTDOWN_MS,
+  MP_HUMILIATION_TICKS,
   MP_REPLAY_TICK_MS,
   type MpDeath,
   type MpPlayer,
@@ -19,6 +20,7 @@ import {
   queueMpBomb,
   queueMpFire,
   queueMpInput,
+  queueMpShed,
   queueMpTurbo,
   shouldPersonalSlowMo,
   shouldSlowMo,
@@ -49,6 +51,9 @@ function applyAi(state: MpState): MpState {
     }
     if (action.fire) {
       next = queueMpFire(next, snake.id);
+    }
+    if (action.bomb) {
+      next = queueMpBomb(next, snake.id);
     }
   }
   return next;
@@ -282,6 +287,11 @@ export function useAiMatch(playerName: string) {
         if (died) {
           snakeAudio.playDie();
         }
+        if (
+          next.humiliations.some((row) => row.life === MP_HUMILIATION_TICKS)
+        ) {
+          snakeAudio.playHumiliate();
+        }
         commitState(next);
       }
       frame = window.requestAnimationFrame(step);
@@ -348,6 +358,15 @@ export function useAiMatch(playerName: string) {
     stateRef.current = queueMpBomb(current, AI_YOU_ID);
   }, []);
 
+  const sendShed = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    stateRef.current = queueMpShed(current, AI_YOU_ID);
+  }, []);
+
   const rematch = useCallback(() => {
     const current = stateRef.current;
     if (!current) {
@@ -382,6 +401,7 @@ export function useAiMatch(playerName: string) {
           shots: frame.shots,
           bombs: frame.bombs,
           blasts: frame.blasts,
+          corpses: frame.corpses,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -399,6 +419,7 @@ export function useAiMatch(playerName: string) {
     sendFire,
     sendTurbo,
     sendBomb,
+    sendShed,
     rematch,
     replaySlowMo,
   };

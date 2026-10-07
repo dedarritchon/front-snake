@@ -11,9 +11,17 @@ export function mpHudKey(state: MpState | null): string {
   }
   let snakes = "";
   for (const snake of state.snakes) {
-    snakes += `${snake.id}:${snake.name}:${snake.color}:${snake.alive ? 1 : 0}:${snake.score}:${snake.power}:${snake.roundWins}|`;
+    snakes += `${snake.id}:${snake.name}:${snake.color}:${snake.alive ? 1 : 0}:${snake.body.length}:${snake.score}:${snake.power}:${snake.roundWins}|`;
   }
-  return `${state.status}:${state.matchRound}:${state.countdown}:${state.winnerId ?? ""}:${state.roundWinnerId ?? ""}:${state.hostLeft ? 1 : 0}:${state.replay.length}:${deaths}:${snakes}`;
+  let walls = "";
+  for (const corpse of state.corpses) {
+    walls += `${corpse.ownerId}:${corpse.life},`;
+  }
+  let shame = "";
+  for (const row of state.humiliations) {
+    shame += `${row.victimId}:${row.attackerId}:${row.life},`;
+  }
+  return `${state.status}:${state.matchRound}:${state.countdown}:${state.winnerId ?? ""}:${state.roundWinnerId ?? ""}:${state.hostLeft ? 1 : 0}:${state.replay.length}:${deaths}:${snakes}:${walls}:${shame}`;
 }
 
 export function soloHudKey(state: GameState): string {

@@ -50,10 +50,17 @@ export interface PaintBlast {
   life: number;
 }
 
+export interface PaintCorpse {
+  ownerId: string;
+  cells: Point[];
+  life: number;
+}
+
 export interface PaintGridExtras {
   tick?: number;
   bombs?: PaintBomb[];
   blasts?: PaintBlast[];
+  corpses?: PaintCorpse[];
   now?: number;
   lastTickAt?: number;
   tickMs?: number;
@@ -717,6 +724,25 @@ export function paintGrid(
         prevById.set(snake.id, snake);
       }
     }
+  }
+
+  const corpses = extras?.corpses ?? [];
+  if (corpses.length > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    for (const corpse of corpses) {
+      const owner = snakes.find((snake) => snake.id === corpse.ownerId);
+      ctx.fillStyle = snakeSegmentColor(owner?.color ?? LCD.pixel, 0, tick);
+      for (const cell of corpse.cells) {
+        ctx.fillRect(
+          cell.x * cellW + cellW * 0.18,
+          cell.y * cellH + cellH * 0.18,
+          cellW * 0.64,
+          cellH * 0.64,
+        );
+      }
+    }
+    ctx.restore();
   }
 
   const draw = (snake: PaintSnake) => {

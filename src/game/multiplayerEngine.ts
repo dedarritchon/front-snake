@@ -1,5 +1,4 @@
 import {
-  baitCountForScore,
   BASE_TICK_MS,
   createRng,
   isDirection,
@@ -13,7 +12,7 @@ import { DIRECTION_DELTA, OPPOSITE } from "./types";
 export const MP_MAX_PLAYERS = 4;
 export const MP_TICK_MS = BASE_TICK_MS;
 export const MP_REPLAY_TICK_MS = MP_TICK_MS * 3;
-export const MP_REPLAY_FRAMES = 10;
+export const MP_REPLAY_FRAMES = 18;
 export const MP_GRID_WIDTH = 29;
 export const MP_GRID_HEIGHT = 25;
 export const MP_COLORS = SNAKE_COLORS;
@@ -25,7 +24,14 @@ export const MP_BOMB_FUSE_TICKS = Math.round(3000 / MP_TICK_MS);
 export const MP_BLAST_TICKS = 3;
 export const MP_BLAST_RADIUS = 2;
 export const MP_ROUNDS = 10;
+export const MP_WINS_NEEDED = 3;
 export const MP_WIN_LENGTH = 20;
+export const MP_SHOT_STEP = 2;
+export const MP_CORPSE_TICKS = Math.round(3000 / MP_TICK_MS);
+export const MP_HUMILIATION_TICKS = Math.round(2000 / MP_TICK_MS);
+export const MP_CUT_PER_APPLE = 4;
+export const MP_CUT_APPLE_CAP = 3;
+export const MP_SHED_COOLDOWN = Math.round(2000 / MP_TICK_MS);
 export const MP_COUNTDOWN_MS = 1000;
 export const MP_COUNTDOWN_START = 3;
 
@@ -65,12 +71,25 @@ export interface MpBlast {
   life: number;
 }
 
+export interface MpCorpse {
+  ownerId: string;
+  cells: Point[];
+  life: number;
+}
+
+export interface MpHumiliation {
+  victimId: string;
+  attackerId: string;
+  life: number;
+}
+
 export interface MpSnapshot {
   snakes: MpSnake[];
   foods: Point[];
   shots: MpShot[];
   bombs: MpBomb[];
   blasts: MpBlast[];
+  corpses: MpCorpse[];
 }
 
 export interface MpPlayer {
@@ -96,8 +115,11 @@ export interface MpSnake {
   fireCooldown: number;
   queuedTurbo: number;
   queuedBombs: number;
+  queuedSheds: number;
   turboLeft: number;
   headingHold: number;
+  winHold: number;
+  shedCooldown: number;
   roundWins: number;
 }
 
@@ -107,6 +129,8 @@ export interface MpState {
   shots: MpShot[];
   bombs: MpBomb[];
   blasts: MpBlast[];
+  corpses: MpCorpse[];
+  humiliations: MpHumiliation[];
   status: MpStatus;
   winnerId: string | null;
   matchRound: number;
@@ -261,13 +285,16 @@ function spawnMpFoods(
   return foods;
 }
 
+export function mpFoodTarget(snakeCount: number): number {
+  return Math.max(1, snakeCount);
+}
+
 function refillFoods(
   bodies: Point[],
   foods: Point[],
-  score: number,
+  target: number,
   rng: Rng,
 ): Point[] {
-  const target = baitCountForScore(score);
   if (foods.length >= target) {
     return foods;
   }
@@ -309,6 +336,10 @@ export function snapshotMp(state: MpState): MpSnapshot {
     shots: state.shots.map((shot) => ({ ...shot })),
     bombs: state.bombs.map((bomb) => ({ ...bomb })),
     blasts: state.blasts.map((blast) => ({ ...blast })),
+    corpses: state.corpses.map((corpse) => ({
+      ...corpse,
+      cells: corpse.cells.map((point) => ({ ...point })),
+    })),
   };
 }
 
@@ -377,6 +408,19 @@ export function keepLocalIntent(
       ),
     };
   }
+  if (host.tick === local.tick && mine.queuedSheds > 0) {
+    next = {
+      ...next,
+      snakes: next.snakes.map((snake) =>
+        snake.id === playerId
+          ? {
+              ...snake,
+              queuedSheds: Math.max(snake.queuedSheds, mine.queuedSheds),
+            }
+          : snake,
+      ),
+    };
+  }
   return next;
 }
 
@@ -395,8 +439,11 @@ interface MpWireSnake {
   pendingFire?: boolean;
   queuedTurbo?: number;
   queuedBombs?: number;
+  queuedSheds?: number;
   turboLeft?: number;
   headingHold?: number;
+  winHold?: number;
+  shedCooldown?: number;
   roundWins?: number;
 }
 
@@ -411,6 +458,7 @@ interface MpWireSnapshot {
   shots?: MpShot[] | MpWirePacked;
   bombs?: MpBomb[] | MpWirePacked;
   blasts?: MpBlast[];
+  corpses?: MpCorpse[];
 }
 
 export interface MpWireState {
@@ -429,6 +477,8 @@ export interface MpWireState {
   shots?: MpShot[] | MpWirePacked;
   bombs?: MpBomb[] | MpWirePacked;
   blasts?: MpBlast[];
+  corpses?: MpCorpse[];
+  humiliations?: MpHumiliation[];
   lastDeaths?: MpDeath[];
   replay?: MpWireSnapshot[];
 }
@@ -592,11 +642,20 @@ function packSnake(snake: MpSnake): MpWireSnake {
   if (snake.queuedBombs > 0) {
     packed.queuedBombs = snake.queuedBombs;
   }
+  if (snake.queuedSheds > 0) {
+    packed.queuedSheds = snake.queuedSheds;
+  }
   if (snake.turboLeft > 0) {
     packed.turboLeft = snake.turboLeft;
   }
   if (snake.headingHold > 0) {
     packed.headingHold = snake.headingHold;
+  }
+  if (snake.winHold > 0) {
+    packed.winHold = snake.winHold;
+  }
+  if (snake.shedCooldown > 0) {
+    packed.shedCooldown = snake.shedCooldown;
   }
   if (snake.roundWins > 0) {
     packed.roundWins = snake.roundWins;
@@ -651,6 +710,10 @@ function unpackSnake(value: unknown): MpSnake | null {
       typeof row.queuedBombs === "number"
         ? Math.max(0, Math.floor(row.queuedBombs))
         : 0,
+    queuedSheds:
+      typeof row.queuedSheds === "number"
+        ? Math.max(0, Math.floor(row.queuedSheds))
+        : 0,
     turboLeft:
       typeof row.turboLeft === "number"
         ? Math.max(0, Math.floor(row.turboLeft))
@@ -658,6 +721,14 @@ function unpackSnake(value: unknown): MpSnake | null {
     headingHold:
       typeof row.headingHold === "number"
         ? Math.max(0, Math.floor(row.headingHold))
+        : 0,
+    winHold:
+      typeof row.winHold === "number"
+        ? Math.max(0, Math.floor(row.winHold))
+        : 0,
+    shedCooldown:
+      typeof row.shedCooldown === "number"
+        ? Math.max(0, Math.floor(row.shedCooldown))
         : 0,
     roundWins:
       typeof row.roundWins === "number"
@@ -771,6 +842,63 @@ function unpackBlasts(value: unknown): MpBlast[] {
   return blasts;
 }
 
+function unpackCorpses(value: unknown): MpCorpse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const corpses: MpCorpse[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const row = item as { ownerId?: unknown; cells?: unknown; life?: unknown };
+    const cells = unpackPoints(row.cells);
+    if (
+      typeof row.ownerId !== "string" ||
+      !cells ||
+      typeof row.life !== "number"
+    ) {
+      continue;
+    }
+    corpses.push({
+      ownerId: row.ownerId,
+      cells,
+      life: Math.max(0, Math.floor(row.life)),
+    });
+  }
+  return corpses;
+}
+
+function unpackHumiliations(value: unknown): MpHumiliation[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const humiliations: MpHumiliation[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const row = item as {
+      victimId?: unknown;
+      attackerId?: unknown;
+      life?: unknown;
+    };
+    if (
+      typeof row.victimId !== "string" ||
+      typeof row.attackerId !== "string" ||
+      typeof row.life !== "number"
+    ) {
+      continue;
+    }
+    humiliations.push({
+      victimId: row.victimId,
+      attackerId: row.attackerId,
+      life: Math.max(0, Math.floor(row.life)),
+    });
+  }
+  return humiliations;
+}
+
 function packSnapshot(snapshot: MpSnapshot): MpWireSnapshot {
   const packed: MpWireSnapshot = {
     snakes: snapshot.snakes.map(packSnake),
@@ -784,6 +912,9 @@ function packSnapshot(snapshot: MpSnapshot): MpWireSnapshot {
   }
   if (snapshot.blasts.length > 0) {
     packed.blasts = snapshot.blasts;
+  }
+  if (snapshot.corpses.length > 0) {
+    packed.corpses = snapshot.corpses;
   }
   return packed;
 }
@@ -811,6 +942,7 @@ function unpackSnapshot(value: unknown): MpSnapshot | null {
     shots: unpackShots(row.shots),
     bombs: unpackBombs(row.bombs),
     blasts: unpackBlasts(row.blasts),
+    corpses: unpackCorpses(row.corpses),
   };
 }
 
@@ -832,6 +964,7 @@ export function createPackedSnapshotRing(capacity = MP_REPLAY_FRAMES) {
         shots: state.shots,
         bombs: state.bombs,
         blasts: state.blasts,
+        corpses: state.corpses,
       });
       if (size < capacity) {
         slots[(start + size) % capacity] = packed;
@@ -972,6 +1105,12 @@ export function toWireState(
   if (state.blasts.length > 0) {
     wire.blasts = state.blasts;
   }
+  if (state.corpses.length > 0) {
+    wire.corpses = state.corpses;
+  }
+  if (state.humiliations.length > 0) {
+    wire.humiliations = state.humiliations;
+  }
   if (state.lastDeaths.length > 0) {
     wire.lastDeaths = state.lastDeaths;
   }
@@ -1034,6 +1173,8 @@ export function fromWireState(payload: unknown): MpState | null {
     shots,
     bombs,
     blasts,
+    corpses: unpackCorpses(row.corpses),
+    humiliations: unpackHumiliations(row.humiliations),
     status: row.status,
     winnerId: typeof row.winnerId === "string" ? row.winnerId : null,
     seed: row.seed,
@@ -1124,6 +1265,15 @@ export function advanceReplay(state: MpState): MpState {
     bombs: frame.bombs,
     blasts: frame.blasts,
   };
+}
+
+export function describeHumiliation(
+  row: MpHumiliation,
+  snakes: MpSnake[],
+): string {
+  const nameOf = (id: string): string =>
+    snakes.find((snake) => snake.id === id)?.name ?? "Player";
+  return `${nameOf(row.attackerId)} cut ${nameOf(row.victimId)} down to the head`;
 }
 
 export function describeDeaths(deaths: MpDeath[], snakes: MpSnake[]): string {
@@ -1235,8 +1385,11 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
       fireCooldown: 0,
       queuedTurbo: 0,
       queuedBombs: 0,
+      queuedSheds: 0,
       turboLeft: 0,
       headingHold: 0,
+      winHold: 0,
+      shedCooldown: 0,
       roundWins: 0,
     };
   });
@@ -1247,6 +1400,8 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     shots: [],
     bombs: [],
     blasts: [],
+    corpses: [],
+    humiliations: [],
     status: "lobby",
     winnerId: null,
     matchRound: 1,
@@ -1279,8 +1434,11 @@ function respawnSnakes(from: MpSnake[], resetMatch: boolean): MpSnake[] {
       fireCooldown: 0,
       queuedTurbo: 0,
       queuedBombs: 0,
+      queuedSheds: 0,
       turboLeft: 0,
       headingHold: 0,
+      winHold: 0,
+      shedCooldown: 0,
       roundWins: resetMatch ? 0 : snake.roundWins,
     };
   });
@@ -1296,7 +1454,12 @@ export function beginRound(
   }
   const rng = createRng(seed);
   const snakes = respawnSnakes(state.snakes, options.resetMatch);
-  const foods = refillFoods(allBodies(snakes), [], 0, rng);
+  const foods = refillFoods(
+    allBodies(snakes),
+    [],
+    mpFoodTarget(snakes.length),
+    rng,
+  );
   return {
     ...state,
     snakes,
@@ -1304,6 +1467,8 @@ export function beginRound(
     shots: [],
     bombs: [],
     blasts: [],
+    corpses: [],
+    humiliations: [],
     status: "countdown",
     countdown: MP_COUNTDOWN_START,
     matchRound: options.resetMatch ? 1 : state.matchRound + 1,
@@ -1338,17 +1503,28 @@ export function startMp(state: MpState, seed = state.seed): MpState {
 }
 
 function queuedSpendSlots(snake: MpSnake): number {
-  return snake.queuedFires + snake.queuedTurbo + snake.queuedBombs;
+  return (
+    snake.queuedFires +
+    snake.queuedTurbo +
+    snake.queuedBombs +
+    snake.queuedSheds
+  );
 }
 
 function deadQueues(): Pick<
   MpSnake,
-  "queuedFires" | "queuedTurbo" | "queuedBombs" | "turboLeft" | "fireCooldown"
+  | "queuedFires"
+  | "queuedTurbo"
+  | "queuedBombs"
+  | "queuedSheds"
+  | "turboLeft"
+  | "fireCooldown"
 > {
   return {
     queuedFires: 0,
     queuedTurbo: 0,
     queuedBombs: 0,
+    queuedSheds: 0,
     turboLeft: 0,
     fireCooldown: 0,
   };
@@ -1436,6 +1612,26 @@ export function queueMpBomb(state: MpState, playerId: string): MpState {
   });
 }
 
+export function queueMpShed(state: MpState, playerId: string): MpState {
+  if (state.status !== "playing") {
+    return state;
+  }
+  return mapAliveSnake(state, playerId, (snake) => {
+    if (
+      snake.shedCooldown > 0 ||
+      snake.queuedSheds > 0 ||
+      snake.body.length < 2
+    ) {
+      return snake;
+    }
+    const affordable = Math.floor(snake.power / MP_POWER_COST);
+    if (queuedSpendSlots(snake) >= affordable) {
+      return snake;
+    }
+    return { ...snake, queuedSheds: snake.queuedSheds + 1 };
+  });
+}
+
 export function killPlayer(state: MpState, playerId: string): MpState {
   if (state.status !== "playing") {
     const snakes = state.snakes.filter((snake) => snake.id !== playerId);
@@ -1496,7 +1692,8 @@ function finishRound(state: MpState, winnerId: string | null): MpState {
     winnerId,
     roundWinnerId: winnerId,
   };
-  if (state.hostLeft || state.matchRound >= MP_ROUNDS) {
+  const matchTaken = snakes.some((snake) => snake.roundWins >= MP_WINS_NEEDED);
+  if (state.hostLeft || state.matchRound >= MP_ROUNDS || matchTaken) {
     return {
       ...awarded,
       status: "over",
@@ -1531,7 +1728,7 @@ function resolveWinner(state: MpState): MpState {
   }
   const alive = state.snakes.filter((snake) => snake.alive);
   const longEnough = alive
-    .filter((snake) => snake.body.length >= MP_WIN_LENGTH)
+    .filter((snake) => snake.winHold >= 2 && snake.body.length >= MP_WIN_LENGTH)
     .sort((a, b) => {
       if (b.body.length !== a.body.length) {
         return b.body.length - a.body.length;
@@ -1567,6 +1764,142 @@ export function roundStandings(snakes: MpSnake[]): MpSnake[] {
 
 function chargePower(power: number, apples: number): number {
   return power + apples;
+}
+
+interface TickDrops {
+  apples: Point[];
+  corpses: MpCorpse[];
+  humiliations: MpHumiliation[];
+  walled: Set<string>;
+}
+
+function emptyDrops(): TickDrops {
+  return { apples: [], corpses: [], humiliations: [], walled: new Set() };
+}
+
+function noteSegments(
+  drops: TickDrops,
+  ownerId: string,
+  segments: Point[],
+  asWall: boolean,
+): void {
+  const count = Math.min(
+    MP_CUT_APPLE_CAP,
+    Math.floor(segments.length / MP_CUT_PER_APPLE),
+  );
+  const appleCells = segments.slice(segments.length - count);
+  for (const apple of appleCells) {
+    drops.apples.push({ ...apple });
+  }
+  if (!asWall) {
+    return;
+  }
+  drops.walled.add(ownerId);
+  const wall = segments.slice(0, segments.length - count);
+  if (wall.length === 0) {
+    return;
+  }
+  drops.corpses.push({
+    ownerId,
+    cells: wall.map((point) => ({ ...point })),
+    life: MP_CORPSE_TICKS,
+  });
+}
+
+function shotCells(origin: Point, direction: Direction): Point[] {
+  const delta = DIRECTION_DELTA[direction];
+  const cells: Point[] = [];
+  let cursor = origin;
+  for (let step = 0; step < MP_SHOT_STEP; step += 1) {
+    cursor = { x: cursor.x + delta.x, y: cursor.y + delta.y };
+    cells.push(cursor);
+  }
+  return cells;
+}
+
+interface MovingShot {
+  ownerId: string;
+  direction: Direction;
+  from: Point;
+  cells: Point[];
+}
+
+function movingShot(
+  from: Point,
+  direction: Direction,
+  ownerId: string,
+): MovingShot {
+  return {
+    ownerId,
+    direction,
+    from,
+    cells: shotCells(from, direction),
+  };
+}
+
+function shotsShareCell(a: MovingShot, b: MovingShot): boolean {
+  const cellsA = [a.from, ...a.cells];
+  const cellsB = [b.from, ...b.cells];
+  for (const left of cellsA) {
+    if (!inBounds(left)) {
+      continue;
+    }
+    for (const right of cellsB) {
+      if (pointsEqual(left, right)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function cancelCrossingShots(moving: MovingShot[]): MovingShot[] {
+  const dead = new Set<number>();
+  for (let i = 0; i < moving.length; i += 1) {
+    for (let j = i + 1; j < moving.length; j += 1) {
+      const shotA = moving[i];
+      const shotB = moving[j];
+      if (
+        shotA.ownerId === shotB.ownerId &&
+        shotA.direction === shotB.direction
+      ) {
+        continue;
+      }
+      if (shotsShareCell(shotA, shotB)) {
+        dead.add(i);
+        dead.add(j);
+      }
+    }
+  }
+  if (dead.size === 0) {
+    return moving;
+  }
+  return moving.filter((_, index) => !dead.has(index));
+}
+
+function ensureDeathWall(
+  drops: TickDrops,
+  ownerId: string,
+  segments: Point[],
+): void {
+  if (drops.walled.has(ownerId) || segments.length === 0) {
+    return;
+  }
+  drops.walled.add(ownerId);
+  drops.corpses.push({
+    ownerId,
+    cells: segments.map((point) => ({ ...point })),
+    life: MP_CORPSE_TICKS,
+  });
+}
+
+function corpseOwner(corpses: MpCorpse[], point: Point): string | null {
+  for (const corpse of corpses) {
+    if (corpse.cells.some((cell) => pointsEqual(cell, point))) {
+      return corpse.ownerId;
+    }
+  }
+  return null;
 }
 
 function inBounds(point: Point): boolean {
@@ -1607,10 +1940,6 @@ function remainingLength(snake: MpSnake, bodies: Map<string, Point[]>): number {
   return snake.body.length;
 }
 
-function headingHoldThisTick(snake: MpSnake, dir: Direction): number {
-  return dir !== snake.direction ? 0 : snake.headingHold;
-}
-
 function nextHeadingHold(snake: MpSnake, dir: Direction): number {
   return dir !== snake.direction ? 0 : snake.headingHold + 1;
 }
@@ -1618,38 +1947,41 @@ function nextHeadingHold(snake: MpSnake, dir: Direction): number {
 function decideHeadPair(
   a: MpSnake,
   b: MpSnake,
-  nextDir: Map<string, Direction>,
   dying: Set<string>,
   deaths: Map<string, MpDeath>,
   combatScore: Map<string, number>,
+  drops: TickDrops,
   lengthOf: (snake: MpSnake) => number,
+  bodyOf: (snake: MpSnake) => Point[],
 ): void {
-  const dirA = nextDir.get(a.id) ?? a.direction;
-  const dirB = nextDir.get(b.id) ?? b.direction;
-  const holdA = headingHoldThisTick(a, dirA);
-  const holdB = headingHoldThisTick(b, dirB);
-  if (holdA === holdB) {
+  const lenA = lengthOf(a);
+  const lenB = lengthOf(b);
+  if (lenA === lenB) {
     dying.add(a.id);
     dying.add(b.id);
     rememberDeath(deaths, a.id, "head", b.id);
     rememberDeath(deaths, b.id, "head", a.id);
+    noteSegments(drops, a.id, bodyOf(a), true);
+    noteSegments(drops, b.id, bodyOf(b), true);
     return;
   }
-  const winner = holdA > holdB ? a : b;
-  const loser = holdA > holdB ? b : a;
+  const winner = lenA > lenB ? a : b;
+  const loser = lenA > lenB ? b : a;
   dying.add(loser.id);
   rememberDeath(deaths, loser.id, "head", winner.id);
   addCombat(combatScore, winner.id, lengthOf(loser));
+  noteSegments(drops, loser.id, bodyOf(loser), true);
 }
 
 function applyHeadCollisions(
   movers: MpSnake[],
   nextHead: Map<string, Point>,
-  nextDir: Map<string, Direction>,
   dying: Set<string>,
   deaths: Map<string, MpDeath>,
   combatScore: Map<string, number>,
+  drops: TickDrops,
   lengthOf: (snake: MpSnake) => number,
+  bodyOf: (snake: MpSnake) => Point[],
 ): void {
   const byId = new Map(movers.map((snake) => [snake.id, snake]));
   const byCell = new Map<number, string[]>();
@@ -1675,6 +2007,10 @@ function applyHeadCollisions(
           "head",
           ids.find((other) => other !== id) ?? null,
         );
+        const snake = byId.get(id);
+        if (snake) {
+          noteSegments(drops, id, bodyOf(snake), true);
+        }
       }
       continue;
     }
@@ -1683,7 +2019,7 @@ function applyHeadCollisions(
     if (!a || !b) {
       continue;
     }
-    decideHeadPair(a, b, nextDir, dying, deaths, combatScore, lengthOf);
+    decideHeadPair(a, b, dying, deaths, combatScore, drops, lengthOf, bodyOf);
   }
 
   for (let i = 0; i < movers.length; i += 1) {
@@ -1699,78 +2035,38 @@ function applyHeadCollisions(
         continue;
       }
       if (pointsEqual(headA, b.body[0]) && pointsEqual(headB, a.body[0])) {
-        decideHeadPair(a, b, nextDir, dying, deaths, combatScore, lengthOf);
+        decideHeadPair(
+          a,
+          b,
+          dying,
+          deaths,
+          combatScore,
+          drops,
+          lengthOf,
+          bodyOf,
+        );
       }
     }
   }
-}
-
-function cancelCollidingShots(
-  moving: { shot: MpShot; from: Point }[],
-): MpShot[] {
-  const dead = new Set<number>();
-  const at = new Map<number, number[]>();
-  for (let i = 0; i < moving.length; i += 1) {
-    const key = cellCode(moving[i].shot);
-    const list = at.get(key);
-    if (list) {
-      list.push(i);
-    } else {
-      at.set(key, [i]);
-    }
-  }
-  for (const list of at.values()) {
-    if (list.length < 2) {
-      continue;
-    }
-    for (let a = 0; a < list.length; a += 1) {
-      for (let b = a + 1; b < list.length; b += 1) {
-        const i = list[a];
-        const j = list[b];
-        const shotA = moving[i].shot;
-        const shotB = moving[j].shot;
-        if (
-          shotA.ownerId === shotB.ownerId &&
-          shotA.direction === shotB.direction
-        ) {
-          continue;
-        }
-        dead.add(i);
-        dead.add(j);
-      }
-    }
-  }
-  for (let i = 0; i < moving.length; i += 1) {
-    for (let j = i + 1; j < moving.length; j += 1) {
-      if (
-        pointsEqual(moving[i].from, moving[j].shot) &&
-        pointsEqual(moving[j].from, moving[i].shot)
-      ) {
-        dead.add(i);
-        dead.add(j);
-      }
-    }
-  }
-  if (dead.size === 0) {
-    return moving.map((row) => row.shot);
-  }
-  return moving
-    .filter((_, index) => !dead.has(index))
-    .map((row) => row.shot);
 }
 
 function resolveShot(
-  shot: MpShot,
+  here: Point,
+  ownerId: string,
   snakes: MpSnake[],
   bodies: Map<string, Point[]>,
   foods: Point[],
   dying: Set<string>,
   deaths: Map<string, MpDeath>,
   combatScore: Map<string, number>,
-): { keep: boolean; foods: Point[]; appleOwner: string | null } {
-  const here = { x: shot.x, y: shot.y };
+  drops: TickDrops,
+  corpses: MpCorpse[],
+): { keep: boolean; foods: Point[] } {
   if (!inBounds(here)) {
-    return { keep: false, foods, appleOwner: null };
+    return { keep: false, foods };
+  }
+  if (corpseOwner(corpses, here)) {
+    return { keep: false, foods };
   }
 
   const foodIndex = foods.findIndex((food) => pointsEqual(food, here));
@@ -1778,7 +2074,6 @@ function resolveShot(
     return {
       keep: false,
       foods: foods.filter((_, index) => index !== foodIndex),
-      appleOwner: shot.ownerId,
     };
   }
 
@@ -1786,7 +2081,7 @@ function resolveShot(
     if (!snake.alive || dying.has(snake.id)) {
       const corpse = bodies.get(snake.id) ?? snake.body;
       if (corpse.some((segment) => pointsEqual(segment, here))) {
-        return { keep: false, foods, appleOwner: null };
+        return { keep: false, foods };
       }
       continue;
     }
@@ -1796,34 +2091,46 @@ function resolveShot(
       continue;
     }
     if (hitIndex === 0) {
-      if (snake.id === shot.ownerId) {
+      if (snake.id === ownerId) {
         continue;
       }
       dying.add(snake.id);
-      rememberDeath(deaths, snake.id, "shot", shot.ownerId);
-      addCombat(combatScore, shot.ownerId, body.length);
-      return { keep: false, foods, appleOwner: null };
+      rememberDeath(deaths, snake.id, "shot", ownerId);
+      addCombat(combatScore, ownerId, body.length);
+      noteSegments(drops, snake.id, body, true);
+      return { keep: false, foods };
     }
     const leftover = body.slice(0, hitIndex);
-    const lost = body.length - leftover.length;
+    const removed = body.slice(hitIndex);
     if (leftover.length === 0) {
       dying.add(snake.id);
-      rememberDeath(deaths, snake.id, "shot", shot.ownerId);
-      addCombat(combatScore, shot.ownerId, body.length);
+      rememberDeath(deaths, snake.id, "shot", ownerId);
+      addCombat(combatScore, ownerId, body.length);
+      noteSegments(drops, snake.id, body, true);
     } else {
       bodies.set(snake.id, leftover);
-      addCombat(combatScore, shot.ownerId, lost);
+      addCombat(combatScore, ownerId, removed.length);
+      noteSegments(drops, snake.id, removed, false);
+      if (leftover.length === 1 && ownerId !== snake.id) {
+        drops.humiliations.push({
+          victimId: snake.id,
+          attackerId: ownerId,
+          life: MP_HUMILIATION_TICKS,
+        });
+      }
     }
-    return { keep: false, foods, appleOwner: null };
+    return { keep: false, foods };
   }
 
-  return { keep: true, foods, appleOwner: null };
+  return { keep: true, foods };
 }
 
 function extraTurboStep(
   snakes: MpSnake[],
   foods: Point[],
   shots: MpShot[],
+  corpses: MpCorpse[],
+  drops: TickDrops,
 ): {
   snakes: MpSnake[];
   foods: Point[];
@@ -1859,11 +2166,12 @@ function extraTurboStep(
   applyHeadCollisions(
     turbo,
     nextHead,
-    nextDir,
     dying,
     deaths,
     combatScore,
+    drops,
     (snake) => snake.body.length,
+    (snake) => snake.body,
   );
 
   let nextFoods = [...foods];
@@ -1892,6 +2200,16 @@ function extraTurboStep(
       markOcc(point);
     }
   }
+  for (const corpse of corpses) {
+    for (const point of corpse.cells) {
+      markOcc(point);
+    }
+  }
+  for (const corpse of drops.corpses) {
+    for (const point of corpse.cells) {
+      markOcc(point);
+    }
+  }
 
   for (const snake of turbo) {
     if (dying.has(snake.id)) {
@@ -1906,12 +2224,20 @@ function extraTurboStep(
     if (hasOcc(head)) {
       dying.add(snake.id);
       const owner = bodyOwner(snakes, head);
-      if (!owner || owner.id === snake.id) {
+      const blockedBy =
+        owner?.id ?? corpseOwner([...corpses, ...drops.corpses], head);
+      if (!blockedBy || blockedBy === snake.id) {
         rememberDeath(deaths, snake.id, "self");
       } else {
-        rememberDeath(deaths, snake.id, "body", owner.id);
-        addCombat(combatScore, owner.id, snake.body.length);
+        rememberDeath(deaths, snake.id, "body", blockedBy);
+        addCombat(combatScore, blockedBy, snake.body.length);
       }
+    }
+  }
+  for (const id of dying) {
+    const snake = snakes.find((row) => row.id === id);
+    if (snake) {
+      ensureDeathWall(drops, id, snake.body);
     }
   }
 
@@ -2052,8 +2378,9 @@ export function tickMp(state: MpState): MpState {
   const firedIds = new Set<string>();
   const turboStarted = new Set<string>();
   const plantedIds = new Set<string>();
-  const shotApples = new Map<string, number>();
+  const shedIds = new Set<string>();
   const combatScore = new Map<string, number>();
+  const drops = emptyDrops();
   const bombs = state.bombs.map((bomb) => ({ ...bomb }));
 
   for (const snake of alive) {
@@ -2069,7 +2396,7 @@ export function tickMp(state: MpState): MpState {
 
   const dying = new Set<string>();
   const bodies = new Map<string, Point[]>();
-  const spawned: { shot: MpShot; from: Point }[] = [];
+  const spawned: MovingShot[] = [];
   for (const snake of alive) {
     let charges = Math.floor(snake.power / MP_POWER_COST);
     const willFire =
@@ -2090,17 +2417,24 @@ export function tickMp(state: MpState): MpState {
     if (willFire) {
       const dir = nextDir.get(snake.id) ?? snake.direction;
       const head = nextHead.get(snake.id) ?? snake.body[0];
-      const delta = DIRECTION_DELTA[dir];
-      spawned.push({
-        shot: {
-          ownerId: snake.id,
-          x: head.x + delta.x,
-          y: head.y + delta.y,
-          direction: dir,
-        },
-        from: { x: head.x, y: head.y },
-      });
+      spawned.push(movingShot(head, dir, snake.id));
       firedIds.add(snake.id);
+    }
+    if (
+      snake.queuedSheds > 0 &&
+      snake.shedCooldown <= 0 &&
+      charges > 0 &&
+      snake.body.length >= 2
+    ) {
+      const keep = Math.ceil(snake.body.length / 2);
+      bodies.set(snake.id, snake.body.slice(0, keep));
+      drops.corpses.push({
+        ownerId: snake.id,
+        cells: snake.body.slice(keep).map((point) => ({ ...point })),
+        life: MP_CORPSE_TICKS,
+      });
+      shedIds.add(snake.id);
+      charges -= 1;
     }
     if (snake.queuedBombs > 0 && charges > 0 && snake.body.length > 0) {
       const tail = snake.body[snake.body.length - 1];
@@ -2115,40 +2449,43 @@ export function tickMp(state: MpState): MpState {
     }
   }
 
-  const traveling = state.shots.map((shot) => {
-    const delta = DIRECTION_DELTA[shot.direction];
-    return {
-      shot: {
-        ownerId: shot.ownerId,
-        x: shot.x + delta.x,
-        y: shot.y + delta.y,
-        direction: shot.direction,
-      },
-      from: { x: shot.x, y: shot.y },
-    };
-  });
+  const traveling = state.shots.map((shot) =>
+    movingShot(shot, shot.direction, shot.ownerId),
+  );
 
   let foods = [...state.foods];
   const liveShots: MpShot[] = [];
-  for (const shot of cancelCollidingShots([...traveling, ...spawned])) {
-    const resolved = resolveShot(
-      shot,
-      state.snakes,
-      bodies,
-      foods,
-      dying,
-      deaths,
-      combatScore,
-    );
-    foods = resolved.foods;
-    if (resolved.appleOwner) {
-      shotApples.set(
-        resolved.appleOwner,
-        (shotApples.get(resolved.appleOwner) ?? 0) + 1,
+  const shotCorpses = [...state.corpses, ...drops.corpses];
+  for (const shot of cancelCrossingShots([...traveling, ...spawned])) {
+    let keep = true;
+    let end: Point | null = null;
+    for (const cell of shot.cells) {
+      const resolved = resolveShot(
+        cell,
+        shot.ownerId,
+        state.snakes,
+        bodies,
+        foods,
+        dying,
+        deaths,
+        combatScore,
+        drops,
+        shotCorpses,
       );
+      foods = resolved.foods;
+      if (!resolved.keep) {
+        keep = false;
+        break;
+      }
+      end = cell;
     }
-    if (resolved.keep) {
-      liveShots.push(shot);
+    if (keep && end) {
+      liveShots.push({
+        ownerId: shot.ownerId,
+        x: end.x,
+        y: end.y,
+        direction: shot.direction,
+      });
     }
   }
 
@@ -2159,11 +2496,12 @@ export function tickMp(state: MpState): MpState {
   applyHeadCollisions(
     alive,
     nextHead,
-    nextDir,
     dying,
     deaths,
     combatScore,
+    drops,
     (snake) => remainingLength(snake, bodies),
+    (snake) => bodies.get(snake.id) ?? snake.body,
   );
 
   const foodCells = occupancySet(foods);
@@ -2192,6 +2530,23 @@ export function tickMp(state: MpState): MpState {
       markOcc(point);
     }
   }
+  const liveHeads = new Set<number>();
+  for (const [id, head] of nextHead) {
+    if (!dying.has(id)) {
+      liveHeads.add(cellCode(head));
+    }
+  }
+  drops.corpses = drops.corpses
+    .map((corpse) => ({
+      ...corpse,
+      cells: corpse.cells.filter((point) => !liveHeads.has(cellCode(point))),
+    }))
+    .filter((corpse) => corpse.cells.length > 0);
+  for (const corpse of [...state.corpses, ...drops.corpses]) {
+    for (const point of corpse.cells) {
+      markOcc(point);
+    }
+  }
 
   for (const snake of alive) {
     if (dying.has(snake.id)) {
@@ -2211,11 +2566,13 @@ export function tickMp(state: MpState): MpState {
     if (hasOcc(head)) {
       dying.add(snake.id);
       const owner = bodyOwner(state.snakes, head);
-      if (!owner || owner.id === snake.id) {
+      const blockedBy =
+        owner?.id ?? corpseOwner([...state.corpses, ...drops.corpses], head);
+      if (!blockedBy || blockedBy === snake.id) {
         rememberDeath(deaths, snake.id, "self");
       } else {
-        rememberDeath(deaths, snake.id, "body", owner.id);
-        addCombat(combatScore, owner.id, remainingLength(snake, bodies));
+        rememberDeath(deaths, snake.id, "body", blockedBy);
+        addCombat(combatScore, blockedBy, remainingLength(snake, bodies));
       }
     }
   }
@@ -2230,7 +2587,9 @@ export function tickMp(state: MpState): MpState {
       if (head && pointsEqual(head, shot)) {
         dying.add(snake.id);
         rememberDeath(deaths, snake.id, "shot", shot.ownerId);
-        addCombat(combatScore, shot.ownerId, remainingLength(snake, bodies));
+        const body = bodies.get(snake.id) ?? snake.body;
+        addCombat(combatScore, shot.ownerId, body.length);
+        noteSegments(drops, snake.id, body, true);
         liveShots.splice(i, 1);
         break;
       }
@@ -2241,12 +2600,19 @@ export function tickMp(state: MpState): MpState {
     eating.delete(id);
   }
 
+  for (const id of dying) {
+    const snake = state.snakes.find((row) => row.id === id);
+    if (snake) {
+      ensureDeathWall(drops, id, bodies.get(id) ?? snake.body);
+    }
+  }
+
   const snakes = state.snakes.map((snake) => {
-    const apples =
-      (eating.has(snake.id) ? 1 : 0) + (shotApples.get(snake.id) ?? 0);
+    const apples = eating.has(snake.id) ? 1 : 0;
     const fired = firedIds.has(snake.id);
     const boosted = turboStarted.has(snake.id) && !dying.has(snake.id);
     const planted = plantedIds.has(snake.id);
+    const shed = shedIds.has(snake.id) && !dying.has(snake.id);
     let spend = 0;
     if (fired) {
       spend += MP_POWER_COST;
@@ -2255,6 +2621,9 @@ export function tickMp(state: MpState): MpState {
       spend += MP_POWER_COST;
     }
     if (planted) {
+      spend += MP_POWER_COST;
+    }
+    if (shed) {
       spend += MP_POWER_COST;
     }
     const powerBase = Math.max(0, snake.power - spend);
@@ -2267,6 +2636,10 @@ export function tickMp(state: MpState): MpState {
     const queuedBombs = planted
       ? Math.max(0, snake.queuedBombs - 1)
       : snake.queuedBombs;
+    const queuedSheds = shed ? 0 : snake.queuedSheds;
+    const shedCooldown = shed
+      ? MP_SHED_COOLDOWN
+      : Math.max(0, snake.shedCooldown - 1);
     const combat = combatScore.get(snake.id) ?? 0;
     if (!snake.alive) {
       return {
@@ -2310,6 +2683,8 @@ export function tickMp(state: MpState): MpState {
       fireCooldown,
       queuedTurbo,
       queuedBombs,
+      queuedSheds,
+      shedCooldown,
       turboLeft,
       score: Math.max(
         0,
@@ -2330,7 +2705,13 @@ export function tickMp(state: MpState): MpState {
     (food) => !eatenHeads.has(cellCode(food)),
   );
 
-  const boosted = extraTurboStep(snakes, remainingFoods, liveShots);
+  const boosted = extraTurboStep(
+    snakes,
+    remainingFoods,
+    liveShots,
+    [...state.corpses, ...drops.corpses],
+    drops,
+  );
   const cooled = boosted.snakes.map((snake) => ({
     ...snake,
     turboLeft: snake.alive && snake.turboLeft > 0 ? snake.turboLeft - 1 : 0,
@@ -2340,29 +2721,100 @@ export function tickMp(state: MpState): MpState {
     deathMap.set(death.playerId, death);
   }
   const afterBombs = tickBombs(bombs, cooled, deathMap);
+  for (const snake of afterBombs.snakes) {
+    if (deathMap.has(snake.id)) {
+      ensureDeathWall(drops, snake.id, snake.body);
+    }
+  }
   const agedBlasts = state.blasts
     .map((blast) => ({ ...blast, life: blast.life - 1 }))
     .filter((blast) => blast.life > 0);
   const lastDeaths =
     deathMap.size > 0 ? [...deathMap.values()] : state.lastDeaths;
-  const maxScore = Math.max(
-    0,
-    ...afterBombs.snakes.map((snake) => snake.score),
+  const corpses = [
+    ...drops.corpses.filter((corpse) => corpse.cells.length > 0),
+    ...state.corpses
+      .map((corpse) => ({ ...corpse, life: corpse.life - 1 }))
+      .filter((corpse) => corpse.life > 0),
+  ];
+  const expiredOwners = new Set(
+    state.corpses
+      .filter((corpse) => corpse.life <= 1)
+      .map((corpse) => corpse.ownerId),
   );
+  const heldSnakes = afterBombs.snakes.map((snake) => {
+    const diedNow = deathMap.has(snake.id);
+    const faded = !snake.alive && expiredOwners.has(snake.id) && !diedNow;
+    const body = diedNow || faded ? [] : snake.body;
+    return {
+      ...snake,
+      body,
+      winHold:
+        snake.alive && body.length >= MP_WIN_LENGTH ? snake.winHold + 1 : 0,
+    };
+  });
+  const blockedFood = new Set<number>();
+  for (const snake of heldSnakes) {
+    if (!snake.alive) {
+      continue;
+    }
+    for (const point of snake.body) {
+      blockedFood.add(cellCode(point));
+    }
+  }
+  for (const corpse of corpses) {
+    for (const point of corpse.cells) {
+      blockedFood.add(cellCode(point));
+    }
+  }
+  const withDrops = mergeApples(boosted.foods, drops.apples, blockedFood);
   const nextFoods =
-    boosted.foods.length >= baitCountForScore(maxScore)
-      ? boosted.foods
-      : refillFoods(allBodies(afterBombs.snakes), boosted.foods, maxScore, rng);
+    withDrops.length >= mpFoodTarget(state.snakes.length)
+      ? withDrops
+      : refillFoods(
+          allBodies(heldSnakes),
+          withDrops,
+          mpFoodTarget(state.snakes.length),
+          rng,
+        );
+  const freshVictims = new Set(drops.humiliations.map((row) => row.victimId));
+  const humiliations = [
+    ...drops.humiliations,
+    ...state.humiliations
+      .filter((row) => !freshVictims.has(row.victimId))
+      .map((row) => ({ ...row, life: row.life - 1 }))
+      .filter((row) => row.life > 0),
+  ];
 
   return resolveWinner({
     ...state,
-    snakes: afterBombs.snakes,
+    snakes: heldSnakes,
     foods: nextFoods,
     shots: boosted.shots,
     bombs: afterBombs.bombs,
     blasts: [...agedBlasts, ...afterBombs.blasts],
+    corpses,
+    humiliations,
     rngState: rng.state(),
     tick: state.tick + 1,
     lastDeaths,
   });
+}
+
+function mergeApples(
+  foods: Point[],
+  apples: Point[],
+  blocked: Set<number>,
+): Point[] {
+  const next = foods.slice();
+  const seen = occupancySet(next);
+  for (const apple of apples) {
+    const code = cellCode(apple);
+    if (!inBounds(apple) || seen.has(code) || blocked.has(code)) {
+      continue;
+    }
+    next.push(apple);
+    seen.add(code);
+  }
+  return next;
 }

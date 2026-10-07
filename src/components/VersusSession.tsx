@@ -62,6 +62,7 @@ export function VersusSession({
     sendFire,
     sendTurbo,
     sendBomb,
+    sendShed,
     toggleReady,
     setColor,
     replaySlowMo,
@@ -137,6 +138,13 @@ export function VersusSession({
         }
         return;
       }
+      if (key === "c") {
+        event.preventDefault();
+        if (!event.repeat) {
+          sendShed();
+        }
+        return;
+      }
       if (key === "m") {
         event.preventDefault();
         if (!event.repeat) {
@@ -155,7 +163,15 @@ export function VersusSession({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [sendBomb, sendDirection, sendFire, sendTurbo, toggleMute, toggleReady]);
+  }, [
+    sendBomb,
+    sendDirection,
+    sendFire,
+    sendShed,
+    sendTurbo,
+    toggleMute,
+    toggleReady,
+  ]);
 
   return (
     <Page>

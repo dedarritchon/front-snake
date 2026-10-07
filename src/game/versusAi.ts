@@ -1,8 +1,10 @@
 import {
+  MP_BLAST_RADIUS,
   MP_GRID_HEIGHT,
   MP_GRID_WIDTH,
   MP_POWER_COST,
   MP_REPLAY_TICK_MS,
+  MP_SHOT_STEP,
   MP_TICK_MS,
   type MpPlayer,
   type MpShot,
@@ -38,6 +40,7 @@ export interface AiAction {
   dir: Direction;
   fire: boolean;
   turbo: boolean;
+  bomb: boolean;
 }
 
 const TURN: Direction[] = ["up", "right", "down", "left"];
@@ -68,6 +71,11 @@ function occupancy(state: MpState, self: MpSnake, next: Point): Set<number> {
     const skipTail = snake.id === self.id && !eating && snake.body.length > 0;
     const body = skipTail ? snake.body.slice(0, -1) : snake.body;
     for (const point of body) {
+      blocked.add(cellIndex(point));
+    }
+  }
+  for (const corpse of state.corpses) {
+    for (const point of corpse.cells) {
       blocked.add(cellIndex(point));
     }
   }
@@ -245,13 +253,24 @@ function shotSpawn(head: Point, direction: Direction): Point {
   return ahead(ahead(head, direction), direction);
 }
 
+function shotSteps(origin: Point, direction: Direction): Point[] {
+  const cells: Point[] = [];
+  let cursor = origin;
+  for (let step = 0; step < MP_SHOT_STEP; step += 1) {
+    cursor = ahead(cursor, direction);
+    cells.push(cursor);
+  }
+  return cells;
+}
+
 function interceptsShot(head: Point, dir: Direction, shot: MpShot): boolean {
   const spawn = shotSpawn(head, dir);
   const next = ahead(head, dir);
-  const landing = ahead(shot, shot.direction);
-  return (
-    pointsEqual(landing, spawn) ||
-    (pointsEqual(shot, spawn) && pointsEqual(landing, next))
+  return shotSteps(shot, shot.direction).some(
+    (cell) =>
+      pointsEqual(cell, spawn) ||
+      pointsEqual(cell, next) ||
+      pointsEqual(cell, head),
   );
 }
 
@@ -271,12 +290,14 @@ function shotThreat(
     if (charged && interceptsShot(head, dir, shot)) {
       continue;
     }
-    const landing = ahead(shot, shot.direction);
-    if (pointsEqual(landing, next) || pointsEqual(landing, head)) {
+    const landing = shotSteps(shot, shot.direction);
+    if (
+      landing.some((cell) => pointsEqual(cell, next) || pointsEqual(cell, head))
+    ) {
       threat += 50_000;
       continue;
     }
-    let cursor = landing;
+    let cursor = landing[landing.length - 1] ?? shot;
     for (let steps = 1; steps <= 8; steps += 1) {
       cursor = ahead(cursor, shot.direction);
       if (!inBounds(cursor)) {
@@ -378,7 +399,12 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
   const kind = aiKind(playerId) ?? "farmer";
   const self = state.snakes.find((snake) => snake.id === playerId);
   if (!self?.alive || state.status !== "playing" || !self.body[0]) {
-    return { dir: self?.direction ?? "right", fire: false, turbo: false };
+    return {
+      dir: self?.direction ?? "right",
+      fire: false,
+      turbo: false,
+      bomb: false,
+    };
   }
 
   const wrapping = self.turboLeft > 0;
@@ -435,8 +461,7 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     if (
       self.power >= MP_POWER_COST &&
       state.shots.some(
-        (shot) =>
-          shot.ownerId !== self.id && interceptsShot(head, dir, shot),
+        (shot) => shot.ownerId !== self.id && interceptsShot(head, dir, shot),
       )
     ) {
       score += 8_000;
@@ -465,5 +490,26 @@ export function chooseAiAction(state: MpState, playerId: string): AiAction {
     self.turboLeft <= 0 &&
     (bestFoodDist <= 8 || fireHit === "head");
 
-  return { dir: bestDir, fire, turbo };
+  const tail = self.body[self.body.length - 1];
+  const enemyInBlast = state.snakes.some(
+    (snake) =>
+      snake.alive &&
+      snake.id !== self.id &&
+      snake.body.some(
+        (segment) =>
+          Math.max(
+            Math.abs(segment.x - tail.x),
+            Math.abs(segment.y - tail.y),
+          ) <= MP_BLAST_RADIUS,
+      ),
+  );
+  const headClear =
+    Math.max(Math.abs(head.x - tail.x), Math.abs(head.y - tail.y)) >
+    MP_BLAST_RADIUS;
+  const bomb =
+    kind === "flanker" &&
+    charges > (fire ? 1 : 0) + (turbo ? 1 : 0) &&
+    enemyInBlast &&
+    headClear;
+  return { dir: bestDir, fire, turbo, bomb };
 }

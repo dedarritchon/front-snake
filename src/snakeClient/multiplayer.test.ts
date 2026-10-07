@@ -154,6 +154,13 @@ describe("parseRoomInput", () => {
     });
   });
 
+  it("reads a shed payload", () => {
+    expect(parseRoomInput({ playerId: "a", shed: true })).toEqual({
+      playerId: "a",
+      kind: "shed",
+    });
+  });
+
   it("reads a bomb payload", () => {
     expect(parseRoomInput({ playerId: "a", bomb: true })).toEqual({
       playerId: "a",
