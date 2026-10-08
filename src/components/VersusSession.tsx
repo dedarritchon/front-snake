@@ -63,6 +63,8 @@ export function VersusSession({
     sendTurbo,
     sendBomb,
     sendShed,
+    sendShield,
+    sendTrap,
     toggleReady,
     setColor,
     replaySlowMo,
@@ -145,6 +147,20 @@ export function VersusSession({
         }
         return;
       }
+      if (key === "v") {
+        event.preventDefault();
+        if (!event.repeat) {
+          sendShield();
+        }
+        return;
+      }
+      if (key === "x") {
+        event.preventDefault();
+        if (!event.repeat) {
+          sendTrap();
+        }
+        return;
+      }
       if (key === "m") {
         event.preventDefault();
         if (!event.repeat) {
@@ -168,6 +184,8 @@ export function VersusSession({
     sendDirection,
     sendFire,
     sendShed,
+    sendShield,
+    sendTrap,
     sendTurbo,
     toggleMute,
     toggleReady,

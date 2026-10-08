@@ -83,7 +83,8 @@ describe("aiTickMs", () => {
     );
     expect(aiTickMs(playing, false)).toBe(MP_TICK_MS);
     expect(aiTickMs(playing, true)).toBe(AI_FAST_TICK_MS);
-    expect(AI_FAST_TICK_MS).toBeLessThan(MP_TICK_MS / 4);
+    expect(AI_FAST_TICK_MS).toBe(MP_TICK_MS / 2);
+    expect(AI_FAST_TICK_MS).toBeLessThan(MP_TICK_MS);
     expect(aiTickMs({ ...playing, status: "replay" }, true)).toBe(
       MP_REPLAY_TICK_MS,
     );

@@ -63,7 +63,9 @@ function guestApply(
   incoming: MpState,
   playerId: string,
 ): { lastTick: number; local: MpState | null } {
-  if (!acceptHostTick(lastTick, incoming, local?.status)) {
+  if (
+    !acceptHostTick(lastTick, incoming, local?.status, local?.replayIndex ?? 0)
+  ) {
     return { lastTick, local };
   }
   return {
@@ -123,6 +125,25 @@ describe("multiplayer performance", () => {
     const local = queueMpInput(host, "b", "down");
     const applied = applyHostSnapshot(next, local, "b");
     expect(applied.snakes[1].pending).toBe("down");
+  });
+
+  it("keeps later slow-mo frames that share a tick", () => {
+    const playing = startMp(createMpLobby(FOUR, 1));
+    const frame = snapshotMp(playing);
+    const replay = beginReplay({ ...playing, status: "over", lastDeaths: [] }, [
+      frame,
+      frame,
+      frame,
+    ]);
+    const second = { ...replay, replayIndex: 1 };
+    const repeat = { ...replay, replayIndex: 1 };
+    const late = { ...replay, replayIndex: 2 };
+    const nextRound = { ...playing, tick: replay.tick + 1 };
+
+    expect(acceptHostTick(replay.tick, second, "replay", 0)).toBe(true);
+    expect(acceptHostTick(replay.tick, repeat, "replay", 1)).toBe(false);
+    expect(acceptHostTick(replay.tick, late, "over", 0)).toBe(false);
+    expect(acceptHostTick(replay.tick, nextRound, "over", 0)).toBe(true);
   });
 
   it("does not advance remote snakes between host snapshots of the same tick", () => {

@@ -38,7 +38,9 @@ export type RoomInput =
   | { playerId: string; kind: "fire" }
   | { playerId: string; kind: "turbo" }
   | { playerId: string; kind: "bomb" }
-  | { playerId: string; kind: "shed" };
+  | { playerId: string; kind: "shed" }
+  | { playerId: string; kind: "shield" }
+  | { playerId: string; kind: "trap" };
 
 export interface RoomHandlers {
   onState: (state: MpState, bytes: number) => void;
@@ -60,6 +62,8 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
     turbo?: unknown;
     bomb?: unknown;
     shed?: unknown;
+    shield?: unknown;
+    trap?: unknown;
   };
   if (typeof body.playerId !== "string") {
     return null;
@@ -75,6 +79,12 @@ export function parseRoomInput(payload: unknown): RoomInput | null {
   }
   if (body.shed === true) {
     return { playerId: body.playerId, kind: "shed" };
+  }
+  if (body.shield === true) {
+    return { playerId: body.playerId, kind: "shield" };
+  }
+  if (body.trap === true) {
+    return { playerId: body.playerId, kind: "trap" };
   }
   if (!isDirection(body.dir)) {
     return null;
@@ -257,6 +267,14 @@ export class MultiplayerRoom {
 
   sendShed(): void {
     this.sendBroadcast("input", { playerId: this.self.playerId, shed: true });
+  }
+
+  sendShield(): void {
+    this.sendBroadcast("input", { playerId: this.self.playerId, shield: true });
+  }
+
+  sendTrap(): void {
+    this.sendBroadcast("input", { playerId: this.self.playerId, trap: true });
   }
 
   sendStart(seed: number): void {

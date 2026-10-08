@@ -29,6 +29,8 @@ import {
   queueMpFire,
   queueMpInput,
   queueMpShed,
+  queueMpShield,
+  queueMpTrap,
   queueMpTurbo,
   shouldPersonalSlowMo,
   shouldPredictLocalTick,
@@ -367,7 +369,14 @@ export function useMultiplayerRoom(
           }
           localReplayRef.current = false;
           const current = stateRef.current;
-          if (!acceptHostTick(lastHostTickRef.current, next, current?.status)) {
+          if (
+            !acceptHostTick(
+              lastHostTickRef.current,
+              next,
+              current?.status,
+              current?.replayIndex ?? 0,
+            )
+          ) {
             netStatsRef.current.recordDrop();
             logNet("drop", {
               tick: next.tick,
@@ -451,7 +460,11 @@ export function useMultiplayerRoom(
                   ? queueMpBomb(current, input.playerId)
                   : input.kind === "shed"
                     ? queueMpShed(current, input.playerId)
-                    : queueMpInput(current, input.playerId, input.dir);
+                    : input.kind === "shield"
+                      ? queueMpShield(current, input.playerId)
+                      : input.kind === "trap"
+                        ? queueMpTrap(current, input.playerId)
+                        : queueMpInput(current, input.playerId, input.dir);
           stateRef.current = next;
           logNet("input", {
             from: input.playerId,
@@ -794,6 +807,40 @@ export function useMultiplayerRoom(
     }
   }, []);
 
+  const sendShield = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    const next = queueMpShield(current, identityRef.current.playerId);
+    if (next === current) {
+      return;
+    }
+    stateRef.current = next;
+    logNet("input", { kind: "shield", host: isHostRef.current });
+    if (!isHostRef.current) {
+      roomRef.current?.sendShield();
+    }
+  }, []);
+
+  const sendTrap = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    const next = queueMpTrap(current, identityRef.current.playerId);
+    if (next === current) {
+      return;
+    }
+    stateRef.current = next;
+    logNet("input", { kind: "trap", host: isHostRef.current });
+    if (!isHostRef.current) {
+      roomRef.current?.sendTrap();
+    }
+  }, []);
+
   const toggleReady = useCallback(() => {
     const status = stateRef.current?.status ?? "lobby";
     if (status === "playing" || status === "replay" || status === "countdown") {
@@ -844,6 +891,7 @@ export function useMultiplayerRoom(
           bombs: frame.bombs,
           blasts: frame.blasts,
           corpses: frame.corpses,
+          traps: frame.traps,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -866,6 +914,8 @@ export function useMultiplayerRoom(
     sendTurbo,
     sendBomb,
     sendShed,
+    sendShield,
+    sendTrap,
     toggleReady,
     setColor,
     replaySlowMo,

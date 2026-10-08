@@ -21,6 +21,8 @@ import {
   queueMpFire,
   queueMpInput,
   queueMpShed,
+  queueMpShield,
+  queueMpTrap,
   queueMpTurbo,
   shouldPersonalSlowMo,
   shouldSlowMo,
@@ -367,6 +369,24 @@ export function useAiMatch(playerName: string) {
     stateRef.current = queueMpShed(current, AI_YOU_ID);
   }, []);
 
+  const sendShield = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    stateRef.current = queueMpShield(current, AI_YOU_ID);
+  }, []);
+
+  const sendTrap = useCallback(() => {
+    void snakeAudio.unlock();
+    const current = stateRef.current;
+    if (!current) {
+      return;
+    }
+    stateRef.current = queueMpTrap(current, AI_YOU_ID);
+  }, []);
+
   const rematch = useCallback(() => {
     const current = stateRef.current;
     if (!current) {
@@ -402,6 +422,7 @@ export function useAiMatch(playerName: string) {
           bombs: frame.bombs,
           blasts: frame.blasts,
           corpses: frame.corpses,
+          traps: frame.traps,
           deaths: personalReplay.deaths,
         }
       : null;
@@ -420,6 +441,8 @@ export function useAiMatch(playerName: string) {
     sendTurbo,
     sendBomb,
     sendShed,
+    sendShield,
+    sendTrap,
     rematch,
     replaySlowMo,
   };

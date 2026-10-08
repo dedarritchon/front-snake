@@ -22,6 +22,7 @@ import {
   type MpSnake,
   type MpState,
   mpTickMs,
+  type MpTrap,
   roundStandings,
 } from "../game/multiplayerEngine";
 import {
@@ -481,6 +482,7 @@ export function VersusBoard({
     bombs: MpBomb[];
     blasts: MpBlast[];
     corpses: MpCorpse[];
+    traps: MpTrap[];
     deaths: MpDeath[];
   } | null;
   ai?: boolean;
@@ -592,6 +594,7 @@ export function VersusBoard({
       const currCorpses = viewing
         ? (personal?.corpses ?? live.corpses)
         : live.corpses;
+      const currTraps = viewing ? (personal?.traps ?? live.traps) : live.traps;
       const blink = paintBlinkKey(
         currBombs,
         currBlasts,
@@ -605,9 +608,12 @@ export function VersusBoard({
       for (const corpse of currCorpses) {
         bodies += `:c${corpse.ownerId}:${corpse.life}:${corpse.cells.length}`;
       }
+      for (const trap of currTraps) {
+        bodies += `:t${trap.ownerId}:${trap.x},${trap.y}`;
+      }
       for (const snake of currSnakes) {
         const head = snake.body[0];
-        bodies += `:${snake.alive ? 1 : 0}:${head.x},${head.y}:${snake.body.length}`;
+        bodies += `:${snake.alive ? 1 : 0}:${head.x},${head.y}:${snake.body.length}:${snake.shieldLeft}`;
       }
       const key = paintFrameKey(
         live.tick,
@@ -638,6 +644,7 @@ export function VersusBoard({
             blastTicks: MP_BLAST_TICKS,
             blastRadius: MP_BLAST_RADIUS,
             corpses: currCorpses,
+            traps: currTraps,
           },
         );
       }
@@ -688,6 +695,7 @@ export function VersusBoard({
           {!error && watchingOut ? (
             <SpectateBar>
               You&apos;re out
+              {deathLine ? <OverlayHint>{deathLine}</OverlayHint> : null}
               {ai ? <OverlayHint>Fast-forward</OverlayHint> : null}
             </SpectateBar>
           ) : null}
@@ -910,8 +918,8 @@ export function VersusBoard({
                         ? "Ready"
                         : "Wait"
                       : snake?.alive
-                        ? `${snake.body.length}/${MP_WIN_LENGTH}`
-                        : `${snake?.roundWins ?? 0}`}
+                        ? `W${snake.roundWins} · ${snake.body.length}/${MP_WIN_LENGTH}`
+                        : `W${snake?.roundWins ?? 0}`}
                   </span>
                 </RosterMeta>
               </RosterRow>
@@ -921,7 +929,7 @@ export function VersusBoard({
         {status === "playing" || status === "countdown" ? (
           <OverlayHint>
             Space cuts the body · Shift wraps the edge · B blasts in 3s · C
-            sheds the tail
+            sheds the tail · V shields · X mines
           </OverlayHint>
         ) : null}
         <Ghost type="button" onClick={onSolo}>

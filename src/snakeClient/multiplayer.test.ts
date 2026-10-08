@@ -159,6 +159,14 @@ describe("parseRoomInput", () => {
       playerId: "a",
       kind: "shed",
     });
+    expect(parseRoomInput({ playerId: "a", shield: true })).toEqual({
+      playerId: "a",
+      kind: "shield",
+    });
+    expect(parseRoomInput({ playerId: "a", trap: true })).toEqual({
+      playerId: "a",
+      kind: "trap",
+    });
   });
 
   it("reads a bomb payload", () => {

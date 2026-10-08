@@ -52,6 +52,8 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
     sendTurbo,
     sendBomb,
     sendShed,
+    sendShield,
+    sendTrap,
     rematch,
     replaySlowMo,
   } = useAiMatch(name);
@@ -116,6 +118,20 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
         }
         return;
       }
+      if (key === "v") {
+        event.preventDefault();
+        if (!event.repeat) {
+          sendShield();
+        }
+        return;
+      }
+      if (key === "x") {
+        event.preventDefault();
+        if (!event.repeat) {
+          sendTrap();
+        }
+        return;
+      }
       if (key === "m") {
         event.preventDefault();
         if (!event.repeat) {
@@ -140,6 +156,8 @@ export function VersusAiSession({ onSolo }: { onSolo: () => void }) {
     sendDirection,
     sendFire,
     sendShed,
+    sendShield,
+    sendTrap,
     sendTurbo,
     toggleMute,
   ]);

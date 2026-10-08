@@ -16,7 +16,7 @@ import type { Direction, Point } from "./types";
 import { DIRECTION_DELTA, OPPOSITE } from "./types";
 
 export const AI_YOU_ID = "you";
-export const AI_FAST_TICK_MS = 20;
+export const AI_FAST_TICK_MS = MP_TICK_MS / 2;
 
 export function aiTickMs(state: MpState, youDead: boolean): number {
   if (state.status === "replay") {
@@ -78,6 +78,12 @@ function occupancy(state: MpState, self: MpSnake, next: Point): Set<number> {
     for (const point of corpse.cells) {
       blocked.add(cellIndex(point));
     }
+  }
+  for (const trap of state.traps) {
+    if (trap.ownerId === self.id) {
+      continue;
+    }
+    blocked.add(cellIndex(trap));
   }
   return blocked;
 }

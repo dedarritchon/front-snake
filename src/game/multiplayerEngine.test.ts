@@ -29,6 +29,7 @@ import {
   MP_REPLAY_FRAMES,
   MP_REPLAY_TICK_MS,
   MP_ROUNDS,
+  MP_SHIELD_TICKS,
   MP_START_POWER,
   MP_TICK_MS,
   MP_TURBO_TICKS,
@@ -42,6 +43,8 @@ import {
   queueMpFire,
   queueMpInput,
   queueMpShed,
+  queueMpShield,
+  queueMpTrap,
   queueMpTurbo,
   retainReplay,
   roundStandings,
@@ -828,10 +831,10 @@ describe("multiplayerEngine", () => {
     };
     state = tickMp(queueMpFire(state, "a"));
     expect(state.snakes[0].body[0]).toEqual({ x: 6, y: 10 });
-    expect(state.shots[0]).toMatchObject({ x: 8, y: 10, direction: "right" });
+    expect(state.shots[0]).toMatchObject({ x: 7, y: 10, direction: "right" });
     state = tickMp(state);
     expect(state.snakes[0].body[0]).toEqual({ x: 7, y: 10 });
-    expect(state.shots[0]).toMatchObject({ x: 10, y: 10 });
+    expect(state.shots[0]).toMatchObject({ x: 8, y: 10 });
   });
 
   it("lets a shot eat an apple without growing", () => {
@@ -1859,5 +1862,297 @@ describe("multiplayerEngine", () => {
     expect(next.corpses[0]?.ownerId).toBe("a");
     expect(next.corpses[0]?.cells.length).toBeGreaterThan(0);
     expect(next.snakes[0].shedCooldown).toBeGreaterThan(0);
+  });
+
+  it("lets a shield stop a head shot without a cut", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          power: MP_POWER_COST,
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "up",
+          pending: "up",
+          shieldLeft: MP_SHIELD_TICKS,
+          body: [
+            { x: 7, y: 10 },
+            { x: 7, y: 11 },
+            { x: 7, y: 12 },
+          ],
+        },
+      ],
+    };
+    const next = tickMp(queueMpFire(state, "a"));
+    expect(next.snakes[1].alive).toBe(true);
+    expect(next.snakes[1].body).toHaveLength(3);
+    expect(next.snakes[1].shieldLeft).toBe(0);
+    expect(next.shots).toEqual([]);
+    expect(next.humiliations).toEqual([]);
+    expect(next.snakes[0].score).toBe(0);
+  });
+
+  it("lets a shield save the snake that would die in a ram", () => {
+    const fourth: MpPlayer = {
+      id: "d",
+      name: "D",
+      color: "#444",
+      host: false,
+      ready: false,
+      joinedAt: 4,
+    };
+    let state: MpState = startMp(createMpLobby([...PLAYERS, fourth], 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "left",
+          pending: "left",
+          shieldLeft: MP_SHIELD_TICKS,
+          body: [
+            { x: 7, y: 10 },
+            { x: 8, y: 10 },
+            { x: 9, y: 10 },
+          ],
+        },
+        state.snakes[2],
+        state.snakes[3],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe("playing");
+    expect(next.snakes[0].alive).toBe(false);
+    expect(next.snakes[1].alive).toBe(true);
+    expect(next.snakes[1].shieldLeft).toBe(0);
+  });
+
+  it("does not shield a wall crash", () => {
+    const fourth: MpPlayer = {
+      id: "d",
+      name: "D",
+      color: "#444",
+      host: false,
+      ready: false,
+      joinedAt: 4,
+    };
+    let state: MpState = startMp(createMpLobby([...PLAYERS, fourth], 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "left",
+          pending: "left",
+          shieldLeft: MP_SHIELD_TICKS,
+          body: [
+            { x: 0, y: 10 },
+            { x: 1, y: 10 },
+            { x: 2, y: 10 },
+          ],
+        },
+        state.snakes[1],
+        state.snakes[2],
+        state.snakes[3],
+      ],
+    };
+    const next = tickMp(state);
+    expect(next.status).toBe("playing");
+    expect(next.snakes[0].alive).toBe(false);
+    expect(next.lastDeaths[0]?.cause).toBe("wall");
+  });
+
+  it("expires a shield", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      snakes: [{ ...state.snakes[0], shieldLeft: 1 }, state.snakes[1]],
+    };
+    const next = tickMp(state);
+    expect(next.snakes[0].alive).toBe(true);
+    expect(next.snakes[0].shieldLeft).toBe(0);
+  });
+
+  it("kills an enemy on a mine and lets the owner through", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS, 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      traps: [{ ownerId: "a", x: 6, y: 12 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 5, y: 12 },
+            { x: 4, y: 12 },
+            { x: 3, y: 12 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 5, y: 14 },
+            { x: 4, y: 14 },
+            { x: 3, y: 14 },
+          ],
+        },
+        state.snakes[2],
+      ],
+    };
+    const owner = tickMp(state);
+    expect(owner.snakes[0].alive).toBe(true);
+    expect(owner.traps).toEqual([{ ownerId: "a", x: 6, y: 12 }]);
+    let enemy = owner;
+    enemy = {
+      ...enemy,
+      snakes: [
+        {
+          ...enemy.snakes[0],
+          direction: "up",
+          pending: "up",
+        },
+        {
+          ...enemy.snakes[1],
+          direction: "up",
+          pending: "up",
+          body: [
+            { x: 6, y: 13 },
+            { x: 6, y: 14 },
+            { x: 6, y: 15 },
+          ],
+        },
+        enemy.snakes[2],
+      ],
+    };
+    const hit = tickMp(enemy);
+    expect(hit.snakes[1].alive).toBe(false);
+    expect(hit.lastDeaths[0]).toMatchObject({
+      playerId: "b",
+      cause: "trap",
+      otherId: "a",
+    });
+    expect(hit.traps).toEqual([{ ownerId: "a", x: 6, y: 12 }]);
+    const neighbor = tickMp({
+      ...state,
+      snakes: [
+        state.snakes[0],
+        {
+          ...state.snakes[1],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 5, y: 11 },
+            { x: 4, y: 11 },
+            { x: 3, y: 11 },
+          ],
+        },
+        state.snakes[2],
+      ],
+    });
+    expect(neighbor.snakes[1].alive).toBe(true);
+  });
+
+  it("keeps a mine until a shot clears it", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS, 1));
+    state = {
+      ...state,
+      foods: [{ x: 0, y: 0 }],
+      traps: [{ ownerId: "b", x: 8, y: 18 }],
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 10, y: 18 },
+            { x: 9, y: 18 },
+            { x: 8, y: 18 },
+          ],
+        },
+        {
+          ...state.snakes[1],
+          direction: "right",
+          pending: "right",
+          body: [
+            { x: 10, y: 16 },
+            { x: 9, y: 16 },
+            { x: 8, y: 16 },
+          ],
+        },
+        state.snakes[2],
+      ],
+    };
+    let aged = state;
+    for (let i = 0; i < 8; i += 1) {
+      aged = tickMp(aged);
+    }
+    expect(aged.traps).toEqual([{ ownerId: "b", x: 8, y: 18 }]);
+    const armed = {
+      ...state,
+      snakes: [
+        {
+          ...state.snakes[0],
+          direction: "right",
+          pending: "right",
+          power: MP_POWER_COST,
+          body: [
+            { x: 5, y: 10 },
+            { x: 4, y: 10 },
+            { x: 3, y: 10 },
+          ],
+        },
+        state.snakes[1],
+      ],
+      traps: [{ ownerId: "b", x: 7, y: 10 }],
+    };
+    const cleared = tickMp(queueMpFire(armed, "a"));
+    expect(cleared.traps).toEqual([]);
+    expect(cleared.shots).toEqual([]);
+  });
+
+  it("round-trips a queued shield and trap", () => {
+    let state: MpState = startMp(createMpLobby(PLAYERS.slice(0, 2), 1));
+    state = {
+      ...state,
+      snakes: state.snakes.map((snake) =>
+        snake.id === "a" ? { ...snake, power: MP_POWER_COST * 2 } : snake,
+      ),
+    };
+    state = queueMpShield(state, "a");
+    state = queueMpTrap(state, "a");
+    const wire = fromWireState(toWireState(state));
+    expect(wire?.snakes[0].queuedShields).toBe(1);
+    expect(wire?.snakes[0].queuedTraps).toBe(1);
+    const planted = tickMp(state);
+    expect(fromWireState(toWireState(planted))?.traps).toEqual(planted.traps);
+    expect(planted.snakes[0].shieldLeft).toBe(MP_SHIELD_TICKS);
   });
 });

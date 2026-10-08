@@ -28,6 +28,7 @@ export interface PaintSnake {
   body: Point[];
   alive?: boolean;
   turboLeft?: number;
+  shieldLeft?: number;
   style?: "normal" | "logo" | "ambient";
 }
 
@@ -56,11 +57,18 @@ export interface PaintCorpse {
   life: number;
 }
 
+export interface PaintTrap {
+  ownerId: string;
+  x: number;
+  y: number;
+}
+
 export interface PaintGridExtras {
   tick?: number;
   bombs?: PaintBomb[];
   blasts?: PaintBlast[];
   corpses?: PaintCorpse[];
+  traps?: PaintTrap[];
   now?: number;
   lastTickAt?: number;
   tickMs?: number;
@@ -569,6 +577,18 @@ function paintOneSnake(
     ctx.lineTo(cx - arm, cy + arm);
     ctx.stroke();
   }
+  if (style === "normal" && alive && (snake.shieldLeft ?? 0) > 0 && body[0]) {
+    const head = body[0];
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = LCD.bg;
+    ctx.lineWidth = Math.max(2, Math.min(cellW, cellH) * 0.12);
+    ctx.strokeRect(
+      head.x * cellW + cellW * 0.08,
+      head.y * cellH + cellH * 0.08,
+      cellW * 0.84,
+      cellH * 0.84,
+    );
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -743,6 +763,23 @@ export function paintGrid(
       }
     }
     ctx.restore();
+  }
+
+  const traps = extras?.traps ?? [];
+  if (traps.length > 0) {
+    for (const trap of traps) {
+      const owner = snakes.find((snake) => snake.id === trap.ownerId);
+      ctx.fillStyle = snakeSegmentColor(owner?.color ?? LCD.pixel, 0, tick);
+      ctx.beginPath();
+      ctx.arc(
+        (trap.x + 0.5) * cellW,
+        (trap.y + 0.5) * cellH,
+        Math.min(cellW, cellH) * 0.16,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
   }
 
   const draw = (snake: PaintSnake) => {
