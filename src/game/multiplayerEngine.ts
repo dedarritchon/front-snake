@@ -160,6 +160,7 @@ export interface MpState {
   lastDeaths: MpDeath[];
   replay: MpSnapshot[];
   replayIndex: number;
+  roundSeq: number;
 }
 
 const SPAWNS: { body: Point[]; direction: Direction }[] = [
@@ -519,6 +520,7 @@ export interface MpWireState {
   roundWinnerId?: string | null;
   hostLeft?: boolean;
   replayIndex?: number;
+  roundSeq?: number;
   snakes: MpWireSnake[];
   foods: number[];
   shots?: MpShot[] | MpWirePacked;
@@ -1135,23 +1137,45 @@ export function createPackedSnapshotRing(capacity = MP_REPLAY_FRAMES) {
 
 export function acceptHostTick(
   lastTick: number,
-  incoming: Pick<MpState, "tick" | "status"> & { replayIndex?: number },
+  incoming: Pick<MpState, "tick" | "status" | "roundSeq"> & {
+    replayIndex?: number;
+    countdown?: number;
+  },
   currentStatus: MpStatus | undefined,
   currentReplayIndex = 0,
+  currentRoundSeq = 0,
+  currentCountdown = 0,
 ): boolean {
+  const incomingSeq = incoming.roundSeq;
+  if (incomingSeq < currentRoundSeq) {
+    return false;
+  }
+  if (incomingSeq > currentRoundSeq) {
+    return incoming.status !== "replay";
+  }
+  if (incoming.status === "replay") {
+    if (currentStatus === "replay") {
+      if (incoming.tick !== lastTick) {
+        return incoming.tick > lastTick;
+      }
+      return (incoming.replayIndex ?? 0) > currentReplayIndex;
+    }
+    return currentStatus === "playing" && incoming.tick >= lastTick;
+  }
   if (incoming.tick > lastTick) {
     return true;
   }
-  if (incoming.status === "replay" && currentStatus === "over") {
+  if (incoming.tick < lastTick) {
     return false;
   }
-  if (incoming.status !== currentStatus) {
+  if (
+    incoming.status === "countdown" &&
+    currentStatus === "countdown" &&
+    (incoming.countdown ?? 0) !== currentCountdown
+  ) {
     return true;
   }
-  return (
-    incoming.status === "replay" &&
-    (incoming.replayIndex ?? 0) > currentReplayIndex
-  );
+  return incoming.status !== currentStatus;
 }
 
 export function applyHostSnapshot(
@@ -1251,6 +1275,7 @@ export function toWireState(
   if (state.replayIndex > 0) {
     wire.replayIndex = state.replayIndex;
   }
+  wire.roundSeq = state.roundSeq;
   if (state.shots.length > 0) {
     wire.shots = packShots(state.shots);
   }
@@ -1345,6 +1370,7 @@ export function fromWireState(payload: unknown): MpState | null {
     lastDeaths,
     replay,
     replayIndex: typeof row.replayIndex === "number" ? row.replayIndex : 0,
+    roundSeq: typeof row.roundSeq === "number" ? row.roundSeq : 0,
     matchRound: typeof row.matchRound === "number" ? row.matchRound : 1,
     countdown: typeof row.countdown === "number" ? row.countdown : 0,
     roundWinnerId:
@@ -1592,6 +1618,7 @@ export function createMpLobby(players: MpPlayer[], seed: number): MpState {
     lastDeaths: [],
     replay: [],
     replayIndex: 0,
+    roundSeq: 0,
   };
 }
 
@@ -1662,6 +1689,7 @@ export function beginRound(
     lastDeaths: options.resetMatch ? [] : state.lastDeaths,
     replay: [],
     replayIndex: 0,
+    roundSeq: state.roundSeq + 1,
   };
 }
 

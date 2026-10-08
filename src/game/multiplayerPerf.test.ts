@@ -6,6 +6,7 @@ import {
   advanceLocalSnake,
   applyHostSnapshot,
   beginReplay,
+  beginRound,
   createMpLobby,
   fromWireState,
   MP_GRID_WIDTH,
@@ -64,7 +65,14 @@ function guestApply(
   playerId: string,
 ): { lastTick: number; local: MpState | null } {
   if (
-    !acceptHostTick(lastTick, incoming, local?.status, local?.replayIndex ?? 0)
+    !acceptHostTick(
+      lastTick,
+      incoming,
+      local?.status,
+      local?.replayIndex ?? 0,
+      local?.roundSeq ?? 0,
+      local?.countdown ?? 0,
+    )
   ) {
     return { lastTick, local };
   }
@@ -118,10 +126,28 @@ describe("multiplayer performance", () => {
     const host = startMp(createMpLobby(FOUR, 1));
     const guessed = tickMp(host);
     expect(guessed.tick).toBe(host.tick + 1);
-    expect(acceptHostTick(guessed.tick, host, guessed.status)).toBe(false);
+    expect(
+      acceptHostTick(
+        guessed.tick,
+        host,
+        guessed.status,
+        0,
+        host.roundSeq,
+        host.countdown,
+      ),
+    ).toBe(false);
 
     const next = { ...host, tick: host.tick + 1 };
-    expect(acceptHostTick(host.tick, next, host.status)).toBe(true);
+    expect(
+      acceptHostTick(
+        host.tick,
+        next,
+        host.status,
+        0,
+        host.roundSeq,
+        host.countdown,
+      ),
+    ).toBe(true);
     const local = queueMpInput(host, "b", "down");
     const applied = applyHostSnapshot(next, local, "b");
     expect(applied.snakes[1].pending).toBe("down");
@@ -140,10 +166,76 @@ describe("multiplayer performance", () => {
     const late = { ...replay, replayIndex: 2 };
     const nextRound = { ...playing, tick: replay.tick + 1 };
 
-    expect(acceptHostTick(replay.tick, second, "replay", 0)).toBe(true);
-    expect(acceptHostTick(replay.tick, repeat, "replay", 1)).toBe(false);
-    expect(acceptHostTick(replay.tick, late, "over", 0)).toBe(false);
-    expect(acceptHostTick(replay.tick, nextRound, "over", 0)).toBe(true);
+    expect(
+      acceptHostTick(replay.tick, second, "replay", 0, replay.roundSeq),
+    ).toBe(true);
+    expect(
+      acceptHostTick(replay.tick, repeat, "replay", 1, replay.roundSeq),
+    ).toBe(false);
+    expect(acceptHostTick(replay.tick, late, "over", 0, replay.roundSeq)).toBe(
+      false,
+    );
+    expect(
+      acceptHostTick(replay.tick, nextRound, "over", 0, replay.roundSeq),
+    ).toBe(true);
+  });
+
+  it("drops a slow-mo frame once the next round has started", () => {
+    let playing = startMp(createMpLobby(FOUR, 1));
+    playing = tickMp(playing);
+    playing = tickMp(playing);
+    const frame = snapshotMp(playing);
+    const replay = beginReplay({ ...playing, status: "over", lastDeaths: [] }, [
+      frame,
+      frame,
+      frame,
+    ]);
+    const nextRound = beginRound(replay, replay.rngState, {
+      resetMatch: false,
+    });
+    const stale = { ...replay, replayIndex: 3 };
+    expect(nextRound.roundSeq).toBe(replay.roundSeq + 1);
+    expect(nextRound.tick).toBeLessThan(replay.tick);
+    expect(
+      acceptHostTick(replay.tick, nextRound, "replay", 2, replay.roundSeq, 0),
+    ).toBe(true);
+    expect(
+      acceptHostTick(
+        nextRound.tick,
+        stale,
+        nextRound.status,
+        0,
+        nextRound.roundSeq,
+        nextRound.countdown,
+      ),
+    ).toBe(false);
+    const counted = { ...nextRound, countdown: nextRound.countdown - 1 };
+    expect(
+      acceptHostTick(
+        nextRound.tick,
+        counted,
+        "countdown",
+        0,
+        nextRound.roundSeq,
+        nextRound.countdown,
+      ),
+    ).toBe(true);
+    const live = {
+      ...nextRound,
+      status: "playing" as const,
+      countdown: 0,
+      tick: 1,
+    };
+    expect(
+      acceptHostTick(
+        nextRound.tick,
+        live,
+        "countdown",
+        0,
+        nextRound.roundSeq,
+        nextRound.countdown,
+      ),
+    ).toBe(true);
   });
 
   it("does not advance remote snakes between host snapshots of the same tick", () => {
@@ -178,7 +270,16 @@ describe("multiplayer performance", () => {
     expect(shouldPredictLocalTick(0, -1)).toBe(false);
 
     const incoming = { ...host, tick: host.tick + 1 };
-    expect(acceptHostTick(host.tick, incoming, host.status)).toBe(true);
+    expect(
+      acceptHostTick(
+        host.tick,
+        incoming,
+        host.status,
+        0,
+        host.roundSeq,
+        host.countdown,
+      ),
+    ).toBe(true);
     const applied = applyHostSnapshot(incoming, predicted, "b");
     expect(applied.snakes[0].body).toEqual(host.snakes[0].body);
     expect(applied.snakes[1].pending).toBe("down");

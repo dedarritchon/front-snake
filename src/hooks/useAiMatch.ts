@@ -79,6 +79,7 @@ export function useAiMatch(playerName: string) {
     frames: MpSnapshot[];
     index: number;
     deaths: MpDeath[];
+    roundSeq: number;
   } | null>(null);
   const eliminatedRef = useRef(false);
   const [eliminated, setEliminated] = useState(false);
@@ -111,6 +112,7 @@ export function useAiMatch(playerName: string) {
           deaths: next.lastDeaths.filter(
             (death) => death.playerId === AI_YOU_ID,
           ),
+          roundSeq: next.roundSeq,
         });
       }
       if (next.status === "playing") {
@@ -182,6 +184,11 @@ export function useAiMatch(playerName: string) {
     const id = window.setInterval(() => {
       setPersonalReplay((current) => {
         if (!current) {
+          return null;
+        }
+        const live = stateRef.current;
+        if (live?.status !== "playing" || live.roundSeq !== current.roundSeq) {
+          personalReplayRef.current = false;
           return null;
         }
         if (current.index + 1 >= current.frames.length) {
@@ -283,6 +290,11 @@ export function useAiMatch(playerName: string) {
         last = now - delay;
       }
       if (next !== current) {
+        const latest = stateRef.current;
+        if (latest && latest.roundSeq !== current.roundSeq) {
+          frame = window.requestAnimationFrame(step);
+          return;
+        }
         if (ate && !fast) {
           snakeAudio.playEat();
         }
@@ -414,7 +426,10 @@ export function useAiMatch(playerName: string) {
 
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
-    personalReplay && frame && state?.status === "playing"
+    personalReplay &&
+    frame &&
+    state?.status === "playing" &&
+    personalReplay.roundSeq === state.roundSeq
       ? {
           snakes: frame.snakes,
           foods: frame.foods,

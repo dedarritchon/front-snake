@@ -92,6 +92,7 @@ export function useMultiplayerRoom(
     frames: MpSnapshot[];
     index: number;
     deaths: MpDeath[];
+    roundSeq: number;
   } | null>(null);
 
   const commitState = useCallback(
@@ -130,6 +131,7 @@ export function useMultiplayerRoom(
           frames: [...historyRef.current.unpack(), crash, crash, crash],
           index: 0,
           deaths: next.lastDeaths.filter((death) => death.playerId === me),
+          roundSeq: next.roundSeq,
         });
       }
       if (next.status === "playing" && options?.predict !== true) {
@@ -375,6 +377,8 @@ export function useMultiplayerRoom(
               next,
               current?.status,
               current?.replayIndex ?? 0,
+              current?.roundSeq ?? 0,
+              current?.countdown ?? 0,
             )
           ) {
             netStatsRef.current.recordDrop();
@@ -524,6 +528,11 @@ export function useMultiplayerRoom(
         if (!current) {
           return null;
         }
+        const live = stateRef.current;
+        if (live?.status !== "playing" || live.roundSeq !== current.roundSeq) {
+          personalReplayRef.current = false;
+          return null;
+        }
         if (current.index + 1 >= current.frames.length) {
           personalReplayRef.current = false;
           return null;
@@ -663,6 +672,11 @@ export function useMultiplayerRoom(
         last = now - delay;
       }
       if (next !== current) {
+        const latest = stateRef.current;
+        if (latest && latest.roundSeq !== current.roundSeq) {
+          frame = window.requestAnimationFrame(step);
+          return;
+        }
         if (ate) {
           snakeAudio.playEat();
         }
@@ -883,7 +897,10 @@ export function useMultiplayerRoom(
 
   const frame = personalReplay?.frames[personalReplay.index];
   const personalView =
-    personalReplay && frame && state?.status === "playing"
+    personalReplay &&
+    frame &&
+    state?.status === "playing" &&
+    personalReplay.roundSeq === state.roundSeq
       ? {
           snakes: frame.snakes,
           foods: frame.foods,

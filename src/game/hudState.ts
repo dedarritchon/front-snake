@@ -21,7 +21,7 @@ export function mpHudKey(state: MpState | null): string {
   for (const row of state.humiliations) {
     shame += `${row.victimId}:${row.attackerId}:${row.life},`;
   }
-  return `${state.status}:${state.matchRound}:${state.countdown}:${state.winnerId ?? ""}:${state.roundWinnerId ?? ""}:${state.hostLeft ? 1 : 0}:${state.replay.length}:${deaths}:${snakes}:${walls}:${shame}`;
+  return `${state.status}:${state.matchRound}:${state.roundSeq}:${state.replayIndex}:${state.countdown}:${state.winnerId ?? ""}:${state.roundWinnerId ?? ""}:${state.hostLeft ? 1 : 0}:${state.replay.length}:${deaths}:${snakes}:${walls}:${shame}`;
 }
 
 export function soloHudKey(state: GameState): string {

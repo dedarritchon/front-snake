@@ -2115,7 +2115,7 @@ describe("multiplayerEngine", () => {
       aged = tickMp(aged);
     }
     expect(aged.traps).toEqual([{ ownerId: "b", x: 8, y: 18 }]);
-    const armed = {
+    const armed: MpState = {
       ...state,
       snakes: [
         {

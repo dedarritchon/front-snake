@@ -200,6 +200,7 @@ export class MultiplayerRoom {
   private missingSince = new Map<string, number>();
   private generation = 0;
   private pendingState: MpWireState | null = null;
+  private replayQueue: MpWireState[] = [];
   private sendingState = false;
   private readonly traffic = createByteRate();
 
@@ -282,22 +283,34 @@ export class MultiplayerRoom {
   }
 
   sendState(state: MpState, options?: { includeReplay?: boolean }): void {
-    this.pendingState = toWireState(state, options);
+    const wire = toWireState(state, options);
+    if (wire.status === "replay") {
+      this.replayQueue.push(wire);
+      if (this.replayQueue.length > 24) {
+        this.replayQueue.shift();
+      }
+    } else {
+      this.replayQueue.length = 0;
+      this.pendingState = wire;
+    }
     this.flushState();
   }
 
   private flushState(): void {
-    if (
-      this.sendingState ||
-      !this.pendingState ||
-      !this.channel ||
-      this.closed
-    ) {
+    if (this.sendingState || !this.channel || this.closed) {
+      return;
+    }
+    let payload: MpWireState | null = null;
+    if (this.replayQueue.length > 0) {
+      payload = this.replayQueue.shift() ?? null;
+    } else {
+      payload = this.pendingState;
+      this.pendingState = null;
+    }
+    if (!payload) {
       return;
     }
     this.sendingState = true;
-    const payload = this.pendingState;
-    this.pendingState = null;
     const encoded = payloadJson(payload);
     this.recordTraffic(encoded);
     logNet("send", {
@@ -313,7 +326,7 @@ export class MultiplayerRoom {
     });
     void Promise.resolve(sent).finally(() => {
       this.sendingState = false;
-      if (this.pendingState) {
+      if (this.replayQueue.length > 0 || this.pendingState) {
         this.flushState();
       }
     });
@@ -383,6 +396,7 @@ export class MultiplayerRoom {
     const channel = this.channel;
     this.channel = null;
     this.pendingState = null;
+    this.replayQueue.length = 0;
     this.generation += 1;
     if (!channel) {
       return;
